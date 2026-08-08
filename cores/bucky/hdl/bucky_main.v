@@ -736,6 +736,7 @@ jtframe_m68k u_cpu(
         rom_cs    = 0;
         sndon     = 0;
         vram_cs   = 0;
+        ccu_cs    = 0;
         tilereg_cs= 0;
         alpha_cs  = 0;
         mute      = 0;
