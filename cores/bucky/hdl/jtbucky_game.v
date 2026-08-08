@@ -24,11 +24,14 @@ module jtbucky_game(
 
 /* verilator tracing_off */
 wire        snd_irq, rmrd, rst8, dma_bsy,
+            ccu_cs,
             pal_cs, cpu_we, tilesys_cs, tilereg_cs, tilereg_b_cs, objsys_cs, pcu_cs, alpha_cs, mute, objcha_n,
             cpu_rnw, vdtac, tile_irqn, tile_nmin, snd_wrn,
             objreg_cs, pair_we;
 wire [15:0] pal_dout, oram_dout, tilesys_dout;
 wire [15:0] video_dumpa;
+wire [ 7:0] ccu_dout;
+wire [ 8:0] video_vdump;
 wire [13:1] oram_addr;
 reg  [ 7:0] debug_mux;
 // reg  [ 2:0] game_id;
@@ -126,6 +129,8 @@ bucky_main u_main(
     .vram_dout      ( tilesys_dout  ),
     .oram_dout      ( oram_dout     ),
     .pal_dout       ( pal_dout      ),
+    .ccu_dout       ( ccu_dout      ),
+    .ccu_cs         ( ccu_cs        ),
     // To video
     .rmrd           ( rmrd          ),
     .dma_bsy        ( dma_bsy       ),
@@ -160,6 +165,18 @@ bucky_main u_main(
     .debug_bus      ( debug_bus     )
 );
 
+bucky_k053252 u_ccu(
+    .rst     ( rst              ),
+    .clk     ( clk              ),
+    .cs      ( ccu_cs & ~ram_dsn[0] ),
+    .we      ( cpu_we           ),
+    .rd      ( ccu_cs & ~cpu_we & ~ram_dsn[0] ),
+    .addr    ( main_addr[4:1]   ),
+    .din     ( ram_din[7:0]     ),
+    .dout    ( ccu_dout         ),
+    .vcount  ( video_vdump      )
+);
+
 assign oram_we   = ~ram_dsn & {2{cpu_we}};
 assign oram_addr = {main_addr[6:5], main_addr[1], main_addr[13:7], main_addr[4:2]};
 
@@ -179,7 +196,7 @@ bucky_video u_video (
     .hs             ( HS            ),
     .vs             ( VS            ),
     .hdump          (               ),   // observabilidad (harness vfull); abiertos en produccion
-    .vdump          (               ),
+    .vdump          ( video_vdump  ),
     .lyro_pxl_o     (               ),
     .flip           ( dip_flip      ),
     // GFX - CPU interface

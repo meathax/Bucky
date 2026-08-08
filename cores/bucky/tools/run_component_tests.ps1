@@ -13,8 +13,12 @@ function Invoke-Checked([string]$program, [string[]]$arguments) {
 function Test-Component([string]$name, [string]$rtl, [string]$testbench) {
 	$top = "tb_$name"
 	$mdir = Join-Path $root "obj_dir\$name"
+	New-Item -ItemType Directory -Force -Path $mdir | Out-Null
 	Invoke-Checked $build @(
-		'--binary', '--timing', '--savable', '-Wall', '-Wno-fatal',
+		# Verilator 5 rejects --timing together with --savable.  These small
+		# clocked component benches use timing, while the full-core harness is
+		# the savable/checkpointed model required by the debug workflow.
+		'--binary', '--timing', '-Wall', '-Wno-fatal',
 		'--top-module', $top, '--Mdir', $mdir, '--build', '-j', '0',
 		(Join-Path $root $rtl), (Join-Path $root $testbench)
 	)
@@ -26,4 +30,5 @@ function Test-Component([string]$name, [string]$rtl, [string]$testbench) {
 
 Test-Component 'bucky_k054000' 'cores\bucky\hdl\bucky_k054000.v' 'cores\bucky\hdl\sim\tb_bucky_k054000.sv'
 Test-Component 'bucky_k054338' 'cores\bucky\hdl\bucky_k054338.v' 'cores\bucky\hdl\sim\tb_bucky_k054338.sv'
-Write-Output 'PASS: strict K054000 and K054338 component tests'
+Test-Component 'bucky_k053252' 'cores\bucky\hdl\bucky_k053252.v' 'cores\bucky\hdl\sim\tb_bucky_k053252.sv'
+Write-Output 'PASS: strict K053252, K054000 and K054338 component tests'

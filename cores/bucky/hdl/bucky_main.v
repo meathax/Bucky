@@ -47,12 +47,14 @@ module bucky_main(
     output reg           vram_cs,
     output reg           tilereg_cs,    // K056832 main regs 0x0c0000
     output reg           tilereg_b_cs,  // K056832 VSCCS regs 0x0d8000
+    output reg           ccu_cs,       // K053252 CCU window 0x0d0000
     output reg           alpha_cs,    // K054338 regs 0x0ca000
     output reg           obj_cs,
 
     input         [15:0] oram_dout,
     input         [15:0] vram_dout,
     input         [15:0] pal_dout,
+    input         [ 7:0] ccu_dout,
     input         [15:0] ram_dout,
     input         [15:0] rom_data,
     input                ram_ok,
@@ -107,7 +109,7 @@ wire        eff_we   = blt_busy ?  blt_we  : ~RnW;
 wire [ 1:0] eff_dsn  = blt_busy ? 2'b00    : {UDSn,LDSn};
 
 // I/O sub-selects (0x0c0000-0x0dffff region)
-reg  io_cs, ccu_cs, collision_cs, sndirq_cs, pair_cs, romrd_cs,
+reg  io_cs, collision_cs, sndirq_cs, pair_cs, romrd_cs,
      in0_cs, in1_cs, p1p3_cs, p2p4_cs, control2_cs, prot_cs;
 reg  [15:0] port_in;
 
@@ -232,6 +234,7 @@ always @(posedge clk) begin
                obj_cs     ? oram_dout       :
                vram_cs    ? vram_dout       :  // ram_word_r: la VRAM del K056832 se lee en words
                pal_cs     ? pal_dout        :
+               ccu_cs     ? {8'hff,ccu_dout}  :
                collision_cs? {8'hff,collision_dout}:
                pair_cs    ? {8'hff,pair_dout}:
                control2_cs? cur_control2    :
