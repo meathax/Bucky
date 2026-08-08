@@ -11,6 +11,8 @@ emulator = "MAME"
 version = "0.289"
 source_root = "D:/Arcade/AI/mame289"
 executable = "D:/arcade/ai/mameexe/mame.exe"
+executable_sha256 = "AF6966108D9B52C22465C6D50F4E5D50CC371B50F2D27DC443935F287AAD37A3"
+source_revision = "MAME 0.289 source snapshot (D:/Arcade/AI/mame289; no .git metadata)"
 driver_files = ["src/mame/konami/moo.cpp"]
 known_imperfect = ["graphics", "shadow-priority", "sprite-zoom-rounding", "zero-z-sprites"]
 
@@ -18,6 +20,7 @@ known_imperfect = ["graphics", "shadow-priority", "sprite-zoom-rounding", "zero-
 validate_source = "powershell -NoProfile -File cores/bucky/tools/validate_source.ps1"
 validate_mra = "python cores/bucky/tools/validate_mra.py --parent-only cores/bucky/releases/bucky.mra"
 test_focused = "powershell -NoProfile -ExecutionPolicy Bypass -File cores/bucky/tools/run_component_tests.ps1"
+pre_hardware = "powershell -NoProfile -ExecutionPolicy Bypass -File cores/bucky/tools/pre_hardware_audit.ps1"
 build_sim = "verilator-safe --savable"
 
 [artifacts]
