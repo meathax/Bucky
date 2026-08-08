@@ -39,7 +39,8 @@ module cowboys_sound(
     input   [ 7:0]  rom_data,
     input           rom_ok,
     // ADPCM ROM
-    output   [20:0] pcm_addr,
+    // GX173 K054539 sample ROM: 4 MiB, byte-addressed (22 bits).
+    output   [21:0] pcm_addr,
     input    [ 7:0] pcm_dout,
     output          pcm_cs,
     input           pcm_ok,
@@ -204,8 +205,6 @@ jt51 u_jt51(
 );
 
 /* verilator tracing_on */
-wire [2:0] nc;
-
 k054539 #(.VOLSHIFT(1)) u_k054539(
     .rst        ( rst       ),
     .clk        ( clk       ),
@@ -220,7 +219,9 @@ k054539 #(.VOLSHIFT(1)) u_k054539(
     .dout       ( k39_dout  ),
     // ROM
     .rom_cs     ( pcm_cs    ),
-    .rom_addr   ({nc,pcm_addr}),
+    // K054539 exposes a wider internal byte address; the GX173 sample slot
+    // consumes its complete 22-bit 4 MiB range.
+    .rom_addr   ({2'b00,pcm_addr}),
     .rom_data   ( pcm_dout  ),
     .rom_ok     ( pcm_ok    ),
     // Sound output (PCM puro — la FM va por su propio canal, ya no entra aqui)
