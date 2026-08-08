@@ -67,6 +67,9 @@ module bucky_video(
 
     // control
     input             rmrd,
+    input             romrd_cs,      // CPU tile-ROM passthrough 0x190000
+    output            romrd_ok,
+    output     [15:0] romrd_dout,
     output            flip,
 
     // Tile ROM (K056832) — 1 bus serial DW32
@@ -112,6 +115,7 @@ wire [15:0] tile_din;
 wire [18:0] rom_addr;
 wire [ 1:0] rom_lyr;
 wire        rom_cs, cpu_weg;
+wire        tile_rom_ok;
 wire [ 3:0] ommra;
 wire [13:1] orama;
 wire [ 1:0] orama_we;
@@ -122,9 +126,24 @@ assign tile_nmin   = 1'b1;
 assign rst8        = 1'b0;
 assign st_dout     = 8'd0;
 assign tilesys_dout= tile_din;         // lectura CPU 16-bit (ram_word_r): la VRAM del K056832 es de words
-// scr_addr[20:2] (19 bits, word DW32) = rom_addr[18:0] (word) directo
-assign scr_addr    = rom_addr;
-assign scr_cs      = rom_cs;
+// The tile fetcher and the CPU ROM passthrough share one JTFRAME 32-bit slot.
+// The arbiter inserts a low-CS break before every CPU request so JTFRAME's
+// edge-triggered ROM request logic cannot reuse a stale tile response.
+bucky_k056832_romrd u_romrd(
+    .rst       ( rst          ),
+    .clk       ( clk          ),
+    .rd_cs     ( romrd_cs    ),
+    .rd_addr   ( cpu_addr[12:1]),
+    .rd_ok     ( romrd_ok    ),
+    .rd_data   ( romrd_dout  ),
+    .tile_addr ( rom_addr    ),
+    .tile_cs   ( rom_cs      ),
+    .tile_ok   ( tile_rom_ok ),
+    .scr_addr  ( scr_addr    ),
+    .scr_cs    ( scr_cs      ),
+    .scr_data  ( scr_data    ),
+    .scr_ok    ( scr_ok      )
+);
 
 always @(posedge clk) vdtac <= 1'b1;   // TODO Fase 1: dtack real de la ventana de tiles
 
@@ -158,7 +177,7 @@ cowboys_k056832 u_scroll(
     .rom_lyr    ( rom_lyr   ),
     .rom_cs     ( rom_cs    ),
     .rom_data   ( scr_data  ),
-    .rom_ok     ( scr_ok    ),
+    .rom_ok     ( tile_rom_ok ),
 
     // pixel out (4 capas)
     .lyrf_pxl   ( lyrf_pxl  ),

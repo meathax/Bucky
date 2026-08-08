@@ -48,6 +48,7 @@ module bucky_main(
     output reg           tilereg_cs,    // K056832 main regs 0x0c0000
     output reg           tilereg_b_cs,  // K056832 VSCCS regs 0x0d8000
     output reg           ccu_cs,       // K053252 CCU window 0x0d0000
+    output reg           romrd_cs,     // K056832 tile-ROM readback 0x190000
     output reg           alpha_cs,    // K054338 regs 0x0ca000
     output reg           obj_cs,
 
@@ -57,8 +58,10 @@ module bucky_main(
     input         [ 7:0] ccu_dout,
     input         [15:0] ram_dout,
     input         [15:0] rom_data,
+    input         [15:0] romrd_dout,
     input                ram_ok,
     input                rom_ok,
+    input                romrd_ok,
     input                vdtac,
     input                tile_irqn,
 
@@ -109,7 +112,7 @@ wire        eff_we   = blt_busy ?  blt_we  : ~RnW;
 wire [ 1:0] eff_dsn  = blt_busy ? 2'b00    : {UDSn,LDSn};
 
 // I/O sub-selects (0x0c0000-0x0dffff region)
-reg  io_cs, collision_cs, sndirq_cs, pair_cs, romrd_cs,
+reg  io_cs, collision_cs, sndirq_cs, pair_cs,
      in0_cs, in1_cs, p1p3_cs, p2p4_cs, control2_cs, prot_cs;
 reg  [15:0] port_in;
 
@@ -121,8 +124,9 @@ assign main_addr= eff_addr[21:1];
 assign ram_dsn  = eff_dsn;
 // El generador de DTACK solo debe ver los accesos DEL 68k: los del blitter se le ocultan
 // (~blt_busy), o su recovery contaria ciclos de bus que la CPU no ha pedido.
-assign bus_cs   = (rom_cs | ram_cs) & ~blt_busy;
-assign bus_busy = ((rom_cs & ~rom_ok) | (ram_cs & ~ram_ok)) & ~blt_busy;
+assign bus_cs   = (rom_cs | ram_cs | romrd_cs) & ~blt_busy;
+assign bus_busy = ((rom_cs & ~rom_ok) | (ram_cs & ~ram_ok) |
+                   (romrd_cs & ~romrd_ok)) & ~blt_busy;
 assign BUSn     = ASn | (LDSn & UDSn);
 assign cpu_we   = eff_we;
 assign cpu_dout = blt_busy ? blt_dout : cpu_dout_68k;
@@ -159,7 +163,7 @@ always @* begin
                    (eff_addr[23:14]==10'h061)) & ~eff_busn; // includes 184000-187fff
         obj_cs  = (eff_addr[23:16]==8'h09);
         vram_cs = (eff_addr[23:14]==10'b00_0110_0000);          // 180000-183fff, mirror included
-        romrd_cs= (eff_addr[23:13]==11'b000_1100_1000);         // 190000-191fff
+        romrd_cs= (eff_addr[23:13]==11'b000_1100_1000) & ~blt_busy; // 190000-191fff
         pal_cs  = (eff_addr[23:14]==10'b00_0110_1100);          // 1b0000-1b3fff, 4096 xRGB888
         // Exact custom-chip windows. The inherited nibble decode aliased every
         // device across an 8 KiB slot, which is not GX173 open-bus behavior.
@@ -234,6 +238,7 @@ always @(posedge clk) begin
                obj_cs     ? oram_dout       :
                vram_cs    ? vram_dout       :  // ram_word_r: la VRAM del K056832 se lee en words
                pal_cs     ? pal_dout        :
+               romrd_cs   ? romrd_dout       :
                ccu_cs     ? {8'hff,ccu_dout}  :
                collision_cs? {8'hff,collision_dout}:
                pair_cs    ? {8'hff,pair_dout}:
@@ -737,6 +742,7 @@ jtframe_m68k u_cpu(
         sndon     = 0;
         vram_cs   = 0;
         ccu_cs    = 0;
+        romrd_cs  = 0;
         tilereg_cs= 0;
         alpha_cs  = 0;
         mute      = 0;

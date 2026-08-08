@@ -24,11 +24,11 @@ module jtbucky_game(
 
 /* verilator tracing_off */
 wire        snd_irq, rmrd, rst8, dma_bsy,
-            ccu_cs,
+            ccu_cs, romrd_cs, romrd_ok,
             pal_cs, cpu_we, tilesys_cs, tilereg_cs, tilereg_b_cs, objsys_cs, pcu_cs, alpha_cs, mute, objcha_n,
             cpu_rnw, vdtac, tile_irqn, tile_nmin, snd_wrn,
             objreg_cs, pair_we;
-wire [15:0] pal_dout, oram_dout, tilesys_dout;
+wire [15:0] pal_dout, oram_dout, tilesys_dout, romrd_dout;
 wire [15:0] video_dumpa;
 wire [ 7:0] ccu_dout;
 wire [ 8:0] video_vdump;
@@ -129,10 +129,13 @@ bucky_main u_main(
     .vram_dout      ( tilesys_dout  ),
     .oram_dout      ( oram_dout     ),
     .pal_dout       ( pal_dout      ),
+    .romrd_dout     ( romrd_dout    ),
+    .romrd_ok       ( romrd_ok      ),
     .ccu_dout       ( ccu_dout      ),
     .ccu_cs         ( ccu_cs        ),
     // To video
     .rmrd           ( rmrd          ),
+    .romrd_cs       ( romrd_cs      ),
     .dma_bsy        ( dma_bsy       ),
     .objreg_cs      ( objreg_cs     ),
     .objcha_n       ( objcha_n      ),
@@ -219,6 +222,9 @@ bucky_video u_video (
     .alpha_cs       ( alpha_cs      ),
     .pal_cs         ( pal_cs        ),
     .pcu_cs         ( pcu_cs        ),
+    .romrd_cs       ( romrd_cs      ),
+    .romrd_ok       ( romrd_ok      ),
+    .romrd_dout     ( romrd_dout    ),
     .vdtac          ( vdtac         ),
     .tilesys_dout   ( tilesys_dout  ),
     .objsys_dout    ( oram_dout     ),

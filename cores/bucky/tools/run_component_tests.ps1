@@ -31,4 +31,5 @@ function Test-Component([string]$name, [string]$rtl, [string]$testbench) {
 Test-Component 'bucky_k054000' 'cores\bucky\hdl\bucky_k054000.v' 'cores\bucky\hdl\sim\tb_bucky_k054000.sv'
 Test-Component 'bucky_k054338' 'cores\bucky\hdl\bucky_k054338.v' 'cores\bucky\hdl\sim\tb_bucky_k054338.sv'
 Test-Component 'bucky_k053252' 'cores\bucky\hdl\bucky_k053252.v' 'cores\bucky\hdl\sim\tb_bucky_k053252.sv'
-Write-Output 'PASS: strict K053252, K054000 and K054338 component tests'
+Test-Component 'bucky_k056832_romrd' 'cores\bucky\hdl\bucky_k056832_romrd.v' 'cores\bucky\hdl\sim\tb_bucky_k056832_romrd.sv'
+Write-Output 'PASS: strict K053252, K054000, K054338 and K056832 ROMRD component tests'
