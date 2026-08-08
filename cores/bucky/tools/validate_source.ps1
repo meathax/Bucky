@@ -9,6 +9,7 @@ $required = @(
 	'cores\bucky\hdl\bucky_k054000.v',
 	'cores\bucky\hdl\bucky_k054338.v',
 	'cores\bucky\cfg\mame2mra.toml',
+	'cores\bucky\tools\pre_hardware_audit.ps1',
 	'cores\bucky\tools\validate_jtframe.py'
 )
 foreach ($relative in $required) {
