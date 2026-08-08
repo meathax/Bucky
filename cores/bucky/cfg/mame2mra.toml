@@ -1,0 +1,66 @@
+[global]
+author=["Bucky MiSTer contributors"]
+
+[parse]
+sourcefile=["moo.cpp"]
+skip={bootlegs=true}
+mustbe.machines=["bucky"]
+rename=[
+    {setname="bucky",    name="Bucky O'Hare (ver EAB)"},
+    {setname="buckyea",  name="Bucky O'Hare (ver EA)"},
+    {setname="buckyjaa", name="Bucky O'Hare (ver JAA)"},
+    {setname="buckyuab", name="Bucky O'Hare (ver UAB)"},
+    {setname="buckyaab", name="Bucky O'Hare (ver AAB)"},
+    {setname="buckyaa",  name="Bucky O'Hare (ver AA)"},
+]
+
+[buttons]
+names=[{machine="bucky",names="Shoot,Jump,Special"}]
+
+[header]
+info="Byte offsets for each ROM region."
+offset={bits=12,reverse=true,regions=["maincpu","soundcpu","k056832","obj","pcm"]}
+frames=[{width=8}]
+
+[ROM]
+regions=[
+    {name="maincpu",width=16,reverse=true},
+    {name="soundcpu"},
+    {name="k056832",width=32},
+    {name="k053246",width=64,rename="obj"},
+    {name="k054539",rename="pcm"},
+    {name="eeprom"},
+]
+order=["maincpu","soundcpu","k056832","obj","pcm","eeprom"]
+
+# The three physical region defaults differ in byte 10 and checksum. Sets not
+# listed inherit the EAB data, which matches their MAME ROM declaration.
+nvram={Defaults=[
+    {data="""\
+    00 00 02 00 03 01 00 00 00 1e 01 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 25"""},
+    {setname="buckyjaa",data="""\
+    00 00 02 00 03 01 00 00 00 1e 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 24"""},
+    {setname="buckyuab",data="""\
+    00 00 02 00 03 01 00 00 00 1e 02 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 26"""},
+]}
