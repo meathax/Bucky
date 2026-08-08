@@ -214,8 +214,11 @@ bucky_k054000 u_collision(
 // El `~` que habia aqui dejaba IN1 bit3 (PORT_SERVICE_NO_TOGGLE, moo.cpp:677, ACTIVE_LOW) clavado a 0
 // = **SERVICIO ACTIVO** -> el juego arrancaba en **MODO TEST** (por eso el POST hacia el test de 64KB
 // de work RAM, el del N4 y el BORRADO DESTRUCTIVO del EEPROM), y ademas dejaba las MONEDAS metidas.
-// TODO (no bloquea el boot, todo suelto = 0xff): verificar el ORDEN de bits del joystick contra
-// KONAMI16_LSB = {START,B3,B2,B1,DOWN,UP,LEFT,RIGHT} (bit7..bit0) vs jtframe joystick[6:0].
+// JTFRAME_JOY_DURL is selected in macros.def.  Its output order is
+// {B3,B2,B1,DOWN,UP,RIGHT,LEFT}, which is exactly KONAMI16_LSB's
+// low-byte order when the start bit is added above: {START,B3,B2,B1,
+// DOWN,UP,RIGHT,LEFT}.  Keep this explicit because a direct, un-reordered
+// JTFRAME joystick would silently swap all four directions on the PCB map.
 function [7:0] konami_player( input [6:0] joy, input start );
     konami_player = { start, joy[6:0] };
 endfunction
@@ -744,6 +747,7 @@ jtframe_m68k u_cpu(
         ccu_cs    = 0;
         romrd_cs  = 0;
         tilereg_cs= 0;
+        tilereg_b_cs=0;
         alpha_cs  = 0;
         mute      = 0;
     end
