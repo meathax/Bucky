@@ -17,12 +17,12 @@
         CANAL SEPARADO (mem.yaml: fm + pcm) -> jtframe mezcla en precision ancha, sin comprometer
         headroom. Trim de PCM en vivo por debug_bus[7:4] (default unidad) para calibrar el balance.
     Implemented in this revision:
-      - reverb RAM 0x4000 (BRAM)
+      - reverb RAM 0x8000 bytes (two 16-bit BRAM banks)
       - forward and reverse playback stepping (base2 bit 5)
       - UPDATE_AT_KEYON position latches and live position register updates
       - active-channel readback at 0x22c.
-      - 0x22d/0x22e reverb-port pointer and read/write behaviour (the ROM
-        side of the port remains a streaming-ROM integration item).
+      - 0x22d/0x22e pointer, complete 0x8000-byte reverb read/write behaviour,
+        and serialized ROM-bank readback through the shared SDRAM port.
 
     ⭐ El READ-BACK del register file es comportamiento REAL y REQUISITO DE ARRANQUE (sesion 11):
     el POST del Z80 escribe/relee 0xE000-0xE1FF; con dout=0 el 68k cuelga en "RAM C4 BAD".
@@ -43,8 +43,12 @@ module k054539 #(parameter VOLSHIFT=0) (
 
     // ROM (PCM samples) en SDRAM COMPARTIDO -> HAY que esperar rom_ok (el dato NO es de latencia cero:
     // bajo contencion video+cpu+sonido llega tarde -> leer sin esperar = falso terminador = sonido que falta).
-    output reg          rom_cs,
-    output reg [23:0]   rom_addr,
+    output              rom_cs,
+    output     [23:0]   rom_addr,
+    // K054539 data-port ROM readback uses the same SDRAM byte stream as
+    // playback.  These status outputs let the Z80 wait wrapper hold the
+    // register read until the shared ROM response has arrived.
+    output              rb_wait,
     input      [ 7:0]   rom_data,
     input               rom_ok,
 
@@ -76,8 +80,8 @@ wire update_at_keyon = regs[9'h12f][0];
 wire reg_updates     = ~regs[9'h12f][7];
 
 assign dout    = (addr == 9'h12c) ? active :
-                 (addr == 9'h12d) ? ((rd && regs[9'h12f][4] && regs[9'h12e] == 8'h80) ?
-                                      rram_port_dout : 8'h00) :
+                 (addr == 9'h12d) ? ((rd && regs[9'h12f][4]) ?
+                                      (regs[9'h12e] == 8'h80 ? rram_port_dout : rb_data) : 8'h00) :
                  regs[addr];
 assign timeout = 1'b0;
 assign st_dout = 8'd0;
@@ -128,19 +132,38 @@ reg [1:0]  w_type;           // 0=8bit, 1=16bit(0x4), 2=DPCM(0x8)
 reg        w_loopen;
 reg        w_reverse;
 
+// Playback ROM request registers.  The external port is arbitrated with the
+// diagnostic/readback request below; only one request is presented at once.
+reg         sample_rom_cs;
+reg  [23:0] sample_rom_addr;
+
+reg         rb_pending, rb_active, rb_read_seen, rb_data_valid;
+reg  [23:0] rb_addr_l;
+reg   [7:0] rb_data;
+wire        rb_rom_bank = regs[9'h12e] != 8'h80;
+wire        rb_cpu_read = cs && rd && (addr == 9'h12d) && regs[9'h12f][4] && rb_rom_bank;
+
+assign rom_cs   = sample_rom_cs | rb_active;
+assign rom_addr = rb_active ? rb_addr_l : sample_rom_addr;
+assign rb_wait  = rb_pending | rb_active | (rb_cpu_read && !rb_data_valid);
+
 // acumuladores en Q16 (como MAME: suma en full-precision, >>16 UNA vez al final)
 reg signed [39:0] accL, accR;
 
 // ---------------------------------------------------------------------------
-// Reverb — linea de retardo mono (MAME k054539.cpp). rbase = int16[0x2000] en BRAM.
+// Reverb — linea de retardo mono (MAME k054539.cpp). The audio delay uses
+// int16[0x2000] words; the CPU data port exposes the complete 0x8000-byte
+// store, with the pointer's bit 16 selecting the upper 0x4000-byte half.
 // Por sample: se LEE+LIMPIA rram[reverb_pos] (feedback, se suma a L y R por igual);
 // cada canal ACUMULA su muestra atenuada en rram[(rdelta+reverb_pos)&0x1fff]; luego reverb_pos++.
 // Lectura REGISTRADA (sincrona) -> infiere BRAM (leccion sesion 16: async => logica).
 // Init 0 via $readmemh (NO `initial for`: Quartus limita el desenrollado a 5000 iter -> Error 10106
 // con 8192; Verilator/lint lo tragan -> nueva cara del C-06). rram_zero.hex = 8192x"0000".
 // ---------------------------------------------------------------------------
-reg  signed [15:0] rram [0:8191];
+reg  signed [15:0] rram    [0:8191];
+reg  signed [15:0] rram_hi [0:8191];
 initial $readmemh("rram_zero.hex", rram);
+initial $readmemh("rram_zero.hex", rram_hi);
 reg  [16:0] read_ptr;             // K054539 0x22d pointer, wraps at 0x1ffff
 reg  [12:0] reverb_pos;
 reg  [12:0] rr_addr;             // direccion de ESCRITURA (clear @revpos / RMW @widx)
@@ -154,21 +177,26 @@ wire [12:0] rd_addr = (state==S_MIX) ? widx : reverb_pos;
 always @(posedge clk) begin
     rr_dout <= rram[rd_addr];
     if (rr_we) rram[rr_addr] <= rr_din;
-    // The hardware exposes the reverb store as a byte-wide data port.  The
-    // audio path owns the lower 0x4000 bytes as 16-bit little-endian words;
-    // the upper address bit is intentionally mirrored here until the wider
-    // optional RAM half is added to the SDRAM-backed integration.
+    // The hardware exposes the complete reverb store as a byte-wide data
+    // port.  The audio path owns the lower 0x4000 bytes; the upper half is
+    // retained in a second BRAM bank selected by pointer bit 16.
     if (cs && we && (addr == 9'h12d) && (regs[9'h12e] == 8'h80)) begin
-        if (!rr_port_addr[0])
-            rram[rr_port_addr[13:1]][7:0]  <= din;
-        else
-            rram[rr_port_addr[13:1]][15:8] <= din;
+        if (!rr_port_addr[0]) begin
+            if (rr_port_addr[14]) rram_hi[rr_port_addr[13:1]][7:0]  <= din;
+            else                  rram[rr_port_addr[13:1]][7:0]     <= din;
+        end else begin
+            if (rr_port_addr[14]) rram_hi[rr_port_addr[13:1]][15:8] <= din;
+            else                  rram[rr_port_addr[13:1]][15:8]    <= din;
+        end
     end
 end
 
+wire [15:0] rram_port_word = rr_port_addr[14] ?
+                              rram_hi[rr_port_addr[13:1]] :
+                              rram[rr_port_addr[13:1]];
 wire [7:0] rram_port_dout = rr_port_addr[0] ?
-                             rram[rr_port_addr[13:1]][15:8] :
-                             rram[rr_port_addr[13:1]][7:0];
+                             rram_port_word[15:8] :
+                             rram_port_word[7:0];
 
 // --- volumen L/R del canal en curso (Q16) ---
 wire [16:0] vt   = {1'b0, voltab[w_vol]};
@@ -259,16 +287,47 @@ integer ci;
 always @(posedge clk) begin
     if (rst) begin
         state <= S_IDLE; sample_cnt <= 0; ch <= 0;
-        rom_cs <= 0; rom_addr <= 0;
+        sample_rom_cs <= 0; sample_rom_addr <= 0;
         left <= 0; right <= 0; accL <= 0; accR <= 0;
         active <= 0; restart <= 0;
         read_ptr <= 0;
+        rb_pending <= 1'b0;
+        rb_active <= 1'b0;
+        rb_read_seen <= 1'b0;
+        rb_data_valid <= 1'b0;
+        rb_addr_l <= 24'd0;
+        rb_data <= 8'd0;
         reverb_pos <= 0; rr_we <= 0; rr_addr <= 0; rr_din <= 0;   // reverb (rram init por `initial`)
         for (ci=0; ci<8; ci=ci+1) begin
             cpos[ci] <= 0; cpfrac[ci] <= 0; cval[ci] <= 0; cpval[ci] <= 0;
         end
         for (ci=0; ci<24; ci=ci+1) pos_latch[ci] <= 0;
     end else begin
+        // ROM-bank data-port reads are serialized behind the playback
+        // sequencer.  The Z80 holds its register cycle through rb_wait while
+        // the shared SDRAM byte is fetched; sample timing is paused only for
+        // this diagnostic transaction.
+        if (!rb_cpu_read) begin
+            rb_read_seen <= 1'b0;
+            rb_data_valid <= 1'b0;
+            if (rb_pending && !rb_active)
+                rb_pending <= 1'b0;
+        end else if (!rb_read_seen) begin
+            rb_read_seen <= 1'b1;
+            if (!rb_pending && !rb_active)
+                rb_pending <= 1'b1;
+        end
+        if (rb_pending && !rb_active && (state == S_IDLE)) begin
+            rb_pending <= 1'b0;
+            rb_active  <= 1'b1;
+            rb_addr_l  <= {regs[9'h12e][6:0],read_ptr};
+        end
+        if (rb_active && rom_ok) begin
+            rb_data       <= rom_data;
+            rb_active     <= 1'b0;
+            rb_data_valid <= 1'b1;
+        end
+
         // All register-file writes live in this process.  Position bytes are
         // diverted to the UPDATE_AT_KEYON latches until a key-on commits them.
         if (cs && we) begin
@@ -317,9 +376,9 @@ always @(posedge clk) begin
         else if (cs && we && (addr == 9'h12e))
             read_ptr <= 17'd0;
 
-        if (cen) begin
+        if (cen && !rb_active) begin
             sample_cnt <= (sample_cnt == 9'd383) ? 9'd0 : sample_cnt + 9'd1;
-            rom_cs <= 1'b0;
+            sample_rom_cs <= 1'b0;
             rr_we  <= 1'b0;   // por defecto sin escritura de reverb (patron rom_cs)
 
             case (state)
@@ -393,18 +452,18 @@ always @(posedge clk) begin
                     case (w_type)
                     2'd0: begin // 8-bit: +1 byte
                         w_pos    <= npos1;
-                        rom_addr <= npos1[23:0];
-                        rom_cs   <= 1'b1; state <= S_R8;
+                        sample_rom_addr <= npos1[23:0];
+                        sample_rom_cs   <= 1'b1; state <= S_R8;
                     end
                     2'd1: begin // 16-bit: +2 bytes (lee low y luego high)
                         w_pos    <= npos2;
-                        rom_addr <= npos2[23:0];
-                        rom_cs   <= 1'b1; state <= S_R16L;
+                        sample_rom_addr <= npos2[23:0];
+                        sample_rom_cs   <= 1'b1; state <= S_R16L;
                     end
                     default: begin // DPCM: +1 nibble; lee byte pos>>1
                         w_pos    <= npos1;
-                        rom_addr <= npos1[24:1];
-                        rom_cs   <= 1'b1; state <= S_RD;
+                        sample_rom_addr <= npos1[24:1];
+                        sample_rom_cs   <= 1'b1; state <= S_RD;
                     end
                     endcase
                 end else begin
@@ -417,7 +476,7 @@ always @(posedge clk) begin
                 w_pval <= w_val;
                 if (rom_data == 8'h80) begin
                     if (w_loopen) begin
-                        w_pos <= {1'b0, w_loop}; rom_addr <= w_loop; rom_cs <= 1'b1; state <= S_R8;
+                        w_pos <= {1'b0, w_loop}; sample_rom_addr <= w_loop; sample_rom_cs <= 1'b1; state <= S_R8;
                     end else begin
                         if (reg_updates) active[ch] <= 1'b0;
                         w_val <= 16'sd0; state <= S_MIX;
@@ -430,14 +489,14 @@ always @(posedge clk) begin
             // ---------- captura 16-bit (byte bajo, luego alto) — espera rom_ok en cada byte ----------
             S_R16L: if (rom_ok) begin
                 w_lo     <= rom_data;
-                rom_addr <= w_pos[23:0] + 24'd1;   // byte alto
-                rom_cs   <= 1'b1; state <= S_R16H;
+                sample_rom_addr <= w_pos[23:0] + 24'd1;   // byte alto
+                sample_rom_cs   <= 1'b1; state <= S_R16H;
             end
             S_R16H: if (rom_ok) begin
                 w_pval <= w_val;
                 if ({rom_data, w_lo} == 16'h8000) begin
                     if (w_loopen) begin
-                        w_pos <= {1'b0, w_loop}; rom_addr <= w_loop; rom_cs <= 1'b1; state <= S_R16L;
+                        w_pos <= {1'b0, w_loop}; sample_rom_addr <= w_loop; sample_rom_cs <= 1'b1; state <= S_R16L;
                     end else begin
                         if (reg_updates) active[ch] <= 1'b0;
                         w_val <= 16'sd0; state <= S_MIX;
@@ -451,7 +510,7 @@ always @(posedge clk) begin
             S_RD: if (rom_ok) begin
                 if (rom_data == 8'h88) begin
                     if (w_loopen) begin
-                        w_pos <= {w_loop, 1'b0}; rom_addr <= w_loop; rom_cs <= 1'b1; state <= S_RD;
+                        w_pos <= {w_loop, 1'b0}; sample_rom_addr <= w_loop; sample_rom_cs <= 1'b1; state <= S_RD;
                     end else begin
                         if (reg_updates) active[ch] <= 1'b0;
                         w_val <= 16'sd0; state <= S_MIX;

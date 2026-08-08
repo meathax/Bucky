@@ -59,6 +59,7 @@ assign main_din = 0;
 `ifndef NOSOUND
 wire        [ 7:0]  cpu_dout, cpu_din,  ram_dout, fm_dout,
                     k39_dout, latch_dout;
+wire                k39_rb_wait;
 wire        [ 3:0]  rom_hi;
 reg         [ 3:0]  bank;
 wire        [15:0]  A;
@@ -94,9 +95,13 @@ assign cpu_din  = rom_cs ? rom_data   :
                   k39_cs ? k39_dout   :
                   k21_cs ? latch_dout :
                   fm_cs  ? fm_dout    : 8'hff;
+// K054539 ROM-bank data-port reads use the same Z80 wait machinery as the
+// program ROM. Ordinary PCM playback never asserts k39_rb_wait.
+wire z80_rom_cs = rom_cs | k39_rb_wait;
+wire z80_rom_ok = rom_cs ? rom_ok : ~k39_rb_wait;
 assign cen_fm   = cen_4;
 assign cen_fm2  = cen_2;
-assign cen_g    = (ram_cs | rom_cs) ? cen_4 : cen_8; // wait state for RAM/ROM access
+assign cen_g    = (ram_cs | rom_cs | k39_rb_wait) ? cen_4 : cen_8; // wait state for RAM/ROM access
 // this is not 100% accurate, but quite close. It does not seem to have much of
 // an effect anyway.
 
@@ -178,8 +183,8 @@ jtframe_sysz80 #(`ifdef SND_RAMW .RAM_AW(`SND_RAMW), `endif .CLR_INT(1)) u_cpu(
     .ram_dout   ( ram_dout  ),
     // ROM access
     .ram_cs     ( ram_cs    ),
-    .rom_cs     ( rom_cs    ),
-    .rom_ok     ( rom_ok    )
+    .rom_cs     ( z80_rom_cs ),
+    .rom_ok     ( z80_rom_ok )
 );
 /* verilator tracing_off */
 jt51 u_jt51(
@@ -224,6 +229,7 @@ k054539 #(.VOLSHIFT(1)) u_k054539(
     .rom_addr   ({2'b00,pcm_addr}),
     .rom_data   ( pcm_dout  ),
     .rom_ok     ( pcm_ok    ),
+    .rb_wait    ( k39_rb_wait ),
     // Sound output (PCM puro — la FM va por su propio canal, ya no entra aqui)
     .left       ( pcm_l     ),
     .right      ( pcm_r     ),

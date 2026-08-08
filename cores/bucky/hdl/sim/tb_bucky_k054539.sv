@@ -10,6 +10,7 @@ module tb_bucky_k054539;
     wire [7:0] st_dout;
     wire rom_cs;
     wire [23:0] rom_addr;
+    wire rb_wait;
     reg [7:0] rom_data=0;
     reg rom_ok=0;
     wire signed [15:0] left, right;
@@ -21,6 +22,7 @@ module tb_bucky_k054539;
         .rst(rst), .clk(clk), .cen(cen), .timeout(timeout),
         .addr(addr), .we(we), .rd(rd), .cs(cs), .din(din), .dout(dout),
         .rom_cs(rom_cs), .rom_addr(rom_addr), .rom_data(rom_data), .rom_ok(rom_ok),
+        .rb_wait(rb_wait),
         .left(left), .right(right), .debug_bus(8'h00), .st_dout(st_dout)
     );
 
@@ -67,6 +69,29 @@ module tb_bucky_k054539;
         wr(9'h114,8'h01);
         expect_reg(9'h00c,8'h12);
         wr(9'h115,8'h01);
+
+        // ROM-bank data-port readback is serialized through the shared ROM
+        // request and advertises a Z80 wait until rom_ok arrives.
+        wr(9'h12e,8'h01);       // bank 1, pointer resets to zero
+        @(negedge clk); addr=9'h12d; cs=1; we=0; rd=1; #1;
+        if (!rb_wait) begin
+            $display("FAIL K054539 ROM read did not assert wait");
+            failures=failures+1;
+        end
+        @(posedge clk); #1;     // latch the request
+        @(posedge clk); #1;     // launch the shared ROM request
+        if (!rom_cs || rom_addr!==24'h020000) begin
+            $display("FAIL K054539 ROM request addr/cs cs=%b addr=%06x",rom_cs,rom_addr);
+            failures=failures+1;
+        end
+        rom_data=8'h5a; rom_ok=1;
+        @(posedge clk); #1;
+        rom_ok=0;
+        if (rb_wait || dout!==8'h5a) begin
+            $display("FAIL K054539 ROM readback wait=%b data=%02x",rb_wait,dout);
+            failures=failures+1;
+        end
+        @(negedge clk); cs=0; rd=0;
 
         // Reverb data-port write/read, bank 0x80, pointer increments after
         // each access and the port obeys global readback bit 4.
