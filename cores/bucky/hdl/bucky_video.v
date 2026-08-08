@@ -59,7 +59,7 @@ module bucky_video(
     input             objreg_cs,
     input             objcha_n,
 
-    output reg        vdtac,
+    output            vdtac,
     input             tilesys_cs,   // VRAM window 0x1a0000
     input             tilereg_cs,   // K056832 regs 0x0c0000
     input             tilereg_b_cs, // K056832 VSCCS regs 0x0d8000
@@ -145,7 +145,22 @@ bucky_k056832_romrd u_romrd(
     .scr_ok    ( scr_ok      )
 );
 
-always @(posedge clk) vdtac <= 1'b1;   // TODO Fase 1: dtack real de la ventana de tiles
+// The K056832 VRAM/register read port is a registered word RAM.  Hold DTACK
+// for the first cycle of a tile-system bus phase, then leave it asserted for
+// the remainder of that phase so the 68000 samples the registered cpu_din.
+// This replaces the old unconditional one, which allowed the CPU to sample
+// stale VRAM data on the first access after a bus phase.
+wire tile_bus_cs = tilesys_cs | tilereg_cs | tilereg_b_cs;
+reg  tile_wait_seen;
+assign vdtac = ~tile_bus_cs | tile_wait_seen;
+always @(posedge clk) begin
+    if (rst)
+        tile_wait_seen <= 1'b0;
+    else if (!tile_bus_cs)
+        tile_wait_seen <= 1'b0;
+    else
+        tile_wait_seen <= 1'b1;
+end
 
 /* verilator tracing_on */
 // ---------------- TILEMAP K056832 (validado) ----------------

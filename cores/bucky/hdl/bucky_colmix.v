@@ -84,10 +84,10 @@ reg  [ 5:0] pri_a, pri_b, pri_c;    // prioridades snoopeadas de CI2/CI3/CI4 (mm
 wire        do_blend;
 wire [23:0] blended_bgr;
 
-// Paleta xRGB_888 (moomesa: PALETTE set_format xRGB_888,2048 -> 2 words/color @0x1c0000).
+// Paleta xRGB_888 (GX173: 4096 entries -> 2 words/color @0x1b0000).
 // word par (cpu_addr[1]=0) low byte = R; word impar (cpu_addr[1]=1): high byte = G, low byte = B.
 // Idéntico a build_palette del golden (r=hi&0xff, g=lo>>8, b=lo&0xff) y al backdrop K054338 de abajo.
-wire [11:0] cpu_cidx = cpu_addr[13:2];   // índice de color (0..2047)
+wire [11:0] cpu_cidx = cpu_addr[13:2];   // índice de color (0..4095)
 wire        we_r = pal_cs & cpu_we & ~cpu_addr[1] & ~cpu_dsn[0];
 wire        we_g = pal_cs & cpu_we &  cpu_addr[1] & ~cpu_dsn[1];
 wire        we_b = pal_cs & cpu_we &  cpu_addr[1] & ~cpu_dsn[0];
@@ -298,9 +298,9 @@ jtframe_sh #(.W(1),.L(2)) u_colndly(.clk(clk),.clk_en(pxl_cen),.din(k251_coln),.
 jtframe_sh #(.W(1),.L(1)) u_fopdly (.clk(clk),.clk_en(pxl_cen),.din(fix_op),   .drop(fixop_a));
 wire use_bg = coln_a & ~fixop_a;
 
-// Paleta moomesa = xRGB_888, 2048 colores, 2 words por color (@0x1c0000). Se guarda en 3 bancos
-// de 2048x8 (R,G,B) direccionados por índice de color: lectura por pal_amux (11b), escritura por
-// cpu_cidx=cpu_addr[12:2] con we por byte (we_r/we_g/we_b). Port1 = lectura vídeo; Port0 = CPU rw.
+// Bucky = xRGB_888, 4096 colores, 2 words por color (@0x1b0000). Se guarda en 3 bancos
+// de 4096x8 (R,G,B) direccionados por índice de color: lectura por pal_amux (12b), escritura por
+// cpu_cidx=cpu_addr[13:2] con we por byte (we_r/we_g/we_b). Port1 = lectura vídeo; Port0 = CPU rw.
 jtframe_dual_ram #(.DW(8),.AW(12),.SIMFILE("pal_r.bin")) u_pal_r(
     .clk0( clk ), .data0( cpu_dout[7:0]  ), .addr0( cpu_cidx ), .we0( we_r ), .q0( cr    ),
     .clk1( clk ), .data1( 8'd0           ), .addr1( pal_amux ), .we1( 1'b0 ), .q1( pal_r )
