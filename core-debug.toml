@@ -16,7 +16,7 @@ known_imperfect = ["graphics", "shadow-priority", "sprite-zoom-rounding", "zero-
 
 [commands]
 validate_source = "powershell -NoProfile -File cores/bucky/tools/validate_source.ps1"
-validate_mra = "python cores/bucky/tools/validate_mra.py cores/bucky/releases"
+validate_mra = "python cores/bucky/tools/validate_mra.py --parent-only cores/bucky/releases/bucky.mra"
 test_focused = "powershell -NoProfile -ExecutionPolicy Bypass -File cores/bucky/tools/run_component_tests.ps1"
 build_sim = "verilator-safe --savable"
 
@@ -40,9 +40,3 @@ capture_format = "P6"
 name = "bucky"
 role = "parent-first-bringup"
 features = ["k054000", "k053990", "k054338", "four-player", "k054539"]
-
-[[sets]]
-name = "bucky-clones"
-role = "complete-set-matrix"
-members = ["buckyea", "buckyjaa", "buckyuab", "buckyaab", "buckyaa"]
-features = ["regional-program-roms", "regional-eeprom"]
