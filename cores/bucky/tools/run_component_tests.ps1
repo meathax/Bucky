@@ -32,4 +32,5 @@ Test-Component 'bucky_k054000' 'cores\bucky\hdl\bucky_k054000.v' 'cores\bucky\hd
 Test-Component 'bucky_k054338' 'cores\bucky\hdl\bucky_k054338.v' 'cores\bucky\hdl\sim\tb_bucky_k054338.sv'
 Test-Component 'bucky_k053252' 'cores\bucky\hdl\bucky_k053252.v' 'cores\bucky\hdl\sim\tb_bucky_k053252.sv'
 Test-Component 'bucky_k056832_romrd' 'cores\bucky\hdl\bucky_k056832_romrd.v' 'cores\bucky\hdl\sim\tb_bucky_k056832_romrd.sv'
-Write-Output 'PASS: strict K053252, K054000, K054338 and K056832 ROMRD component tests'
+Test-Component 'bucky_k054539' 'cores\bucky\hdl\k054539.v' 'cores\bucky\hdl\sim\tb_bucky_k054539.sv'
+Write-Output 'PASS: strict K053252, K054000, K054338, K056832 ROMRD and K054539 component tests'

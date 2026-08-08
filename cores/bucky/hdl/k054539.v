@@ -16,9 +16,13 @@
         key on/off. Salida = PCM PURO (canal propio hacia el rcmix de jtframe). La FM (jt51) es un
         CANAL SEPARADO (mem.yaml: fm + pcm) -> jtframe mezcla en precision ancha, sin comprometer
         headroom. Trim de PCM en vivo por debug_bus[7:4] (default unidad) para calibrar el balance.
-    TODO (siguiente incremento):
-      - reverb RAM 0x4000 (BRAM)   - reverse (no usado en moomesa: 0/470)   - latch UPDATE_AT_KEYON
-        exacto (aqui: restart por flanco de keyon leyendo regs 0x0c-0e directo).
+    Implemented in this revision:
+      - reverb RAM 0x4000 (BRAM)
+      - forward and reverse playback stepping (base2 bit 5)
+      - UPDATE_AT_KEYON position latches and live position register updates
+      - active-channel readback at 0x22c.
+      - 0x22d/0x22e reverb-port pointer and read/write behaviour (the ROM
+        side of the port remains a streaming-ROM integration item).
 
     ⭐ El READ-BACK del register file es comportamiento REAL y REQUISITO DE ARRANQUE (sesion 11):
     el POST del Z80 escribe/relee 0xE000-0xE1FF; con dout=0 el 68k cuelga en "RAM C4 BAD".
@@ -57,17 +61,23 @@ module k054539 #(parameter VOLSHIFT=0) (
 // Mapeo offsets MAME -> modulo: canales 0x0xx igual; control 0x2xx -> 0x1xx
 //   active=0x22c->0x12c  ctrl=0x22f->0x12f  keyon=0x214->0x114  keyoff=0x215->0x115
 //   canal ch base1=0x20*ch (igual)   base2=0x200+2*ch -> 0x100+2*ch
-// CPU es el UNICO que escribe regs[] (un solo driver). keyon/keyoff/terminador tocan `active`.
+// CPU y el secuenciador comparten este único proceso de escritura de regs[].
+// keyon/keyoff/terminador tocan `active` en el mismo proceso para evitar
+// múltiples drivers al inferir el bloque de registros en Quartus.
 // ---------------------------------------------------------------------------
 reg  [7:0] regs [0:511];
+// UPDATE_AT_KEYON stores position writes outside the visible register RAM
+// until the next key-on command.  Keep this flat for Quartus inference.
+reg  [7:0] pos_latch [0:23];
 integer    gi;
 initial for (gi=0; gi<512; gi=gi+1) regs[gi] = 8'd0;
 
-always @(posedge clk) begin
-    if (cs && we) regs[addr] <= din;
-end
+wire update_at_keyon = regs[9'h12f][0];
+wire reg_updates     = ~regs[9'h12f][7];
 
-assign dout    = regs[addr];
+assign dout    = (addr == 9'h12c) ? active :
+                 (addr == 9'h12d) ? ((rd && regs[9'h12f][4]) ? rram_port_dout : 8'h00) :
+                 regs[addr];
 assign timeout = 1'b0;
 assign st_dout = 8'd0;
 
@@ -107,7 +117,7 @@ reg [2:0]  ch;
 
 // registros de trabajo del canal en curso
 reg [24:0] w_pos;              // 25b: DPCM trabaja en unidades de NIBBLE (pos<<1)
-reg [31:0] w_pfrac;
+reg signed [31:0] w_pfrac;
 reg signed [15:0] w_val, w_pval;
 reg [23:0] w_loop;
 reg [7:0]  w_lo;              // byte bajo del sample 16-bit
@@ -115,6 +125,7 @@ reg [7:0]  w_vol;
 reg [3:0]  w_pan;
 reg [1:0]  w_type;           // 0=8bit, 1=16bit(0x4), 2=DPCM(0x8)
 reg        w_loopen;
+reg        w_reverse;
 
 // acumuladores en Q16 (como MAME: suma en full-precision, >>16 UNA vez al final)
 reg signed [39:0] accL, accR;
@@ -129,18 +140,34 @@ reg signed [39:0] accL, accR;
 // ---------------------------------------------------------------------------
 reg  signed [15:0] rram [0:8191];
 initial $readmemh("rram_zero.hex", rram);
+reg  [16:0] read_ptr;             // K054539 0x22d pointer, wraps at 0x1ffff
 reg  [12:0] reverb_pos;
 reg  [12:0] rr_addr;             // direccion de ESCRITURA (clear @revpos / RMW @widx)
 reg         rr_we;
 reg  signed [15:0] rr_din;
 reg  signed [15:0] rr_dout;      // lectura registrada de rram[rd_addr] (1 ciclo de latencia)
+wire [14:0] rr_port_addr = {read_ptr[16], read_ptr[13:0]};
 // direccion de LECTURA combinacional: en S_MIX lee @widx (para el RMW del canal en S_RVWR);
 // en cualquier otro estado lee @reverb_pos (feedback, usado en S_REVRD tras emitir en S_IDLE).
 wire [12:0] rd_addr = (state==S_MIX) ? widx : reverb_pos;
 always @(posedge clk) begin
     rr_dout <= rram[rd_addr];
     if (rr_we) rram[rr_addr] <= rr_din;
+    // The hardware exposes the reverb store as a byte-wide data port.  The
+    // audio path owns the lower 0x4000 bytes as 16-bit little-endian words;
+    // the upper address bit is intentionally mirrored here until the wider
+    // optional RAM half is added to the SDRAM-backed integration.
+    if (cs && we && (addr == 9'h12d) && (regs[9'h12e] == 8'h80)) begin
+        if (!rr_port_addr[0])
+            rram[rr_port_addr[13:1]][7:0]  <= din;
+        else
+            rram[rr_port_addr[13:1]][15:8] <= din;
+    end
 end
+
+wire [7:0] rram_port_dout = rr_port_addr[0] ?
+                             rram[rr_port_addr[13:1]][15:8] :
+                             rram[rr_port_addr[13:1]][7:0];
 
 // --- volumen L/R del canal en curso (Q16) ---
 wire [16:0] vt   = {1'b0, voltab[w_vol]};
@@ -179,6 +206,9 @@ wire signed [15:0] rev_contrib = rprod[31:16];                   // (>>16) trunc
 wire [8:0] b1 = {1'b0, ch, 5'b0};            // 0x20*ch
 wire [8:0] b2 = 9'h100 + {5'b0, ch, 1'b0};   // 0x100 + 2*ch
 wire [23:0] delta_now = {regs[b1+9'd2], regs[b1+9'd1], regs[b1+9'd0]};
+wire signed [31:0] delta_signed = regs[b2][5] ?
+                                   -$signed({8'b0,delta_now}) :
+                                    $signed({8'b0,delta_now});
 wire [1:0]  type_now  = (regs[b2] & 8'h0c)==8'h00 ? 2'd0 :
                         (regs[b2] & 8'h0c)==8'h04 ? 2'd1 : 2'd2;
 
@@ -221,8 +251,8 @@ wire signed [15:0] ds = dpcm_step(dnib);
 //   (La FM se trimea en su propio canal, en cowboys_sound.v con debug_bus[3:0].)
 wire [4:0] pcm_g = (debug_bus[7:4]==4'd0) ? 5'd8 : {1'b0, debug_bus[7:4]};
 // avance de posicion (unidades de w_pos)
-wire [24:0] npos1 = w_pos + 25'd1;
-wire [24:0] npos2 = w_pos + 25'd2;
+wire [24:0] npos1 = w_reverse ? w_pos - 25'd1 : w_pos + 25'd1;
+wire [24:0] npos2 = w_reverse ? w_pos - 25'd2 : w_pos + 25'd2;
 
 integer ci;
 always @(posedge clk) begin
@@ -231,19 +261,60 @@ always @(posedge clk) begin
         rom_cs <= 0; rom_addr <= 0;
         left <= 0; right <= 0; accL <= 0; accR <= 0;
         active <= 0; restart <= 0;
+        read_ptr <= 0;
         reverb_pos <= 0; rr_we <= 0; rr_addr <= 0; rr_din <= 0;   // reverb (rram init por `initial`)
         for (ci=0; ci<8; ci=ci+1) begin
             cpos[ci] <= 0; cpfrac[ci] <= 0; cval[ci] <= 0; cpval[ci] <= 0;
         end
+        for (ci=0; ci<24; ci=ci+1) pos_latch[ci] <= 0;
     end else begin
+        // All register-file writes live in this process.  Position bytes are
+        // diverted to the UPDATE_AT_KEYON latches until a key-on commits them.
+        if (cs && we) begin
+            if (update_at_keyon && !addr[8] &&
+                (addr[4:0] >= 5'h0c) && (addr[4:0] <= 5'h0e))
+                pos_latch[(addr[8:5] * 3) + (addr[4:0] - 5'h0c)] <= din;
+            else
+                regs[addr] <= din;
+        end
+
         // key on/off desde la CPU (corre a clk, no a cen)
         if (cs && we) begin
             case (addr)
-                9'h114: begin restart <= restart | (din & ~active); active <= active | din; end
-                9'h115: active <= active & ~din;
+                9'h114: begin
+                    // MAME suppresses all register updates while bit 7 of
+                    // the global control is set.  With UPDATE_AT_KEYON,
+                    // copy the three latched position bytes atomically.
+                    if (reg_updates) begin
+                        active  <= active | din;
+                        restart <= restart | (din & ~active);
+                    end
+                    if (update_at_keyon) begin
+                        for (ci=0; ci<8; ci=ci+1) begin
+                            if (din[ci]) begin
+                                regs[(ci*32)+9'h0c] <= pos_latch[(ci*3)+0];
+                                regs[(ci*32)+9'h0d] <= pos_latch[(ci*3)+1];
+                                regs[(ci*32)+9'h0e] <= pos_latch[(ci*3)+2];
+                            end
+                        end
+                    end
+                end
+                9'h115: if (reg_updates) active <= active & ~din;
+                9'h12c: if (reg_updates) active <= din;
                 default: ;
             endcase
         end
+
+        // 0x22d advances the serial pointer for both writes and reads;
+        // 0x22e selects a bank and resets the pointer.  ROM-bank reads are
+        // serviced by the streaming-ROM integration; the reverb bank is
+        // available immediately through rram_port_dout above.
+        if (cs && we && (addr == 9'h12d))
+            read_ptr <= read_ptr + 17'd1;
+        else if (cs && rd && (addr == 9'h12d) && regs[9'h12f][4])
+            read_ptr <= read_ptr + 17'd1;
+        else if (cs && we && (addr == 9'h12e))
+            read_ptr <= 17'd0;
 
         if (cen) begin
             sample_cnt <= (sample_cnt == 9'd383) ? 9'd0 : sample_cnt + 9'd1;
@@ -278,30 +349,31 @@ always @(posedge clk) begin
                     w_loopen <=  regs[b2+1][0];
                     w_pan    <=  pan_idx(regs[b1+5]);
                     w_type   <=  type_now;
+                    w_reverse<=  regs[b2][5];
                     // pos/frac base (unidad byte). Para DPCM se escala a nibble abajo.
                     if (type_now == 2'd2) begin
                         // DPCM: pos<<1, frac<<1, ajuste de acarreo, +=delta
                         if (restart[ch]) begin
                             w_pos   <= {regs[b1+9'he], regs[b1+9'hd], regs[b1+9'hc]} << 1;
-                            w_pfrac <= {8'b0, delta_now};                 // (0<<1)=0, +delta
+                            w_pfrac <= delta_signed;                     // (0<<1)=0, +/-delta
                             w_val   <= 0; w_pval <= 0;
                             restart[ch] <= 1'b0;
                         end else begin
                             // frac<<1; si bit16 -> pos|1, frac&0xffff; luego +delta
                             w_pos   <= ({cpos[ch],1'b0}) | (cpfrac[ch][15] ? 25'd1 : 25'd0);
-                            w_pfrac <= {15'b0, cpfrac[ch], 1'b0} + {8'b0, delta_now}
+                            w_pfrac <= $signed({15'b0, cpfrac[ch], 1'b0}) + delta_signed
                                        - (cpfrac[ch][15] ? 32'h0001_0000 : 32'd0);
                             w_val   <= cval[ch]; w_pval <= cpval[ch];
                         end
                     end else begin
                         if (restart[ch]) begin
                             w_pos   <= {1'b0, regs[b1+9'he], regs[b1+9'hd], regs[b1+9'hc]};
-                            w_pfrac <= {8'b0, delta_now};
+                            w_pfrac <= delta_signed;
                             w_val   <= 0; w_pval <= 0;
                             restart[ch] <= 1'b0;
                         end else begin
                             w_pos   <= {1'b0, cpos[ch]};
-                            w_pfrac <= {16'b0, cpfrac[ch]} + {8'b0, delta_now};
+                            w_pfrac <= $signed({16'b0, cpfrac[ch]}) + delta_signed;
                             w_val   <= cval[ch]; w_pval <= cpval[ch];
                         end
                     end
@@ -312,7 +384,11 @@ always @(posedge clk) begin
             // ---------- while(cur_pfrac & ~0xffff): avanza y lee ----------
             S_ACC: begin
                 if (|w_pfrac[31:16]) begin
-                    w_pfrac <= w_pfrac - 32'h0001_0000;
+                    // Forward playback subtracts one whole fraction; reverse
+                    // playback adds it back while the signed fraction is
+                    // negative, matching MAME's fdelta/pdelta pair.
+                    w_pfrac <= w_pfrac +
+                               (w_reverse ? 32'sh0001_0000 : -32'sh0001_0000);
                     case (w_type)
                     2'd0: begin // 8-bit: +1 byte
                         w_pos    <= npos1;
@@ -342,7 +418,8 @@ always @(posedge clk) begin
                     if (w_loopen) begin
                         w_pos <= {1'b0, w_loop}; rom_addr <= w_loop; rom_cs <= 1'b1; state <= S_R8;
                     end else begin
-                        active[ch] <= 1'b0; w_val <= 16'sd0; state <= S_MIX;
+                        if (reg_updates) active[ch] <= 1'b0;
+                        w_val <= 16'sd0; state <= S_MIX;
                     end
                 end else begin
                     w_val <= $signed({rom_data, 8'h00}); state <= S_ACC;
@@ -361,7 +438,8 @@ always @(posedge clk) begin
                     if (w_loopen) begin
                         w_pos <= {1'b0, w_loop}; rom_addr <= w_loop; rom_cs <= 1'b1; state <= S_R16L;
                     end else begin
-                        active[ch] <= 1'b0; w_val <= 16'sd0; state <= S_MIX;
+                        if (reg_updates) active[ch] <= 1'b0;
+                        w_val <= 16'sd0; state <= S_MIX;
                     end
                 end else begin
                     w_val <= $signed({rom_data, w_lo}); state <= S_ACC;
@@ -374,7 +452,8 @@ always @(posedge clk) begin
                     if (w_loopen) begin
                         w_pos <= {w_loop, 1'b0}; rom_addr <= w_loop; rom_cs <= 1'b1; state <= S_RD;
                     end else begin
-                        active[ch] <= 1'b0; w_val <= 16'sd0; state <= S_MIX;
+                        if (reg_updates) active[ch] <= 1'b0;
+                        w_val <= 16'sd0; state <= S_MIX;
                     end
                 end else begin
                     w_pval <= w_val;
@@ -389,10 +468,19 @@ always @(posedge clk) begin
                 accR <= accR + contribR;
                 if (w_type == 2'd2) begin
                     cpos[ch]   <= w_pos[24:1];                             // pos>>1
-                    cpfrac[ch] <= {1'b0, w_pfrac[15:1]} | (w_pos[0] ? 16'h8000 : 16'h0);
+                    cpfrac[ch] <= (w_pfrac >>> 1) | (w_pos[0] ? 16'h8000 : 16'h0);
                 end else begin
                     cpos[ch]   <= w_pos[23:0];
                     cpfrac[ch] <= w_pfrac[15:0];
+                end
+                // The silicon mirrors the current sample position into the
+                // channel's 0x0c..0x0e bytes while register updates are
+                // enabled.  This is observable through the Z80 readback
+                // path and is required by diagnostics.
+                if (reg_updates) begin
+                    regs[b1+9'h0c] <= (w_type == 2'd2) ? w_pos[8:1]  : w_pos[7:0];
+                    regs[b1+9'h0d] <= (w_type == 2'd2) ? w_pos[16:9] : w_pos[15:8];
+                    regs[b1+9'h0e] <= (w_type == 2'd2) ? w_pos[24:17] : w_pos[23:16];
                 end
                 cval[ch]  <= w_val;
                 cpval[ch] <= w_pval;
