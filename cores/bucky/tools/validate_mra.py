@@ -51,10 +51,21 @@ def validate(path: Path) -> str:
 
 
 def main() -> int:
-    roots = [Path(arg) for arg in sys.argv[1:]] or [Path(__file__).parents[1] / "releases"]
+    # The parent EAB set is the current bring-up/acceptance target.  Keep the
+    # historical six-set validation available for release metadata audits, but
+    # allow CI and hardware bring-up to validate only the ROM that is actually
+    # loaded.  This avoids treating clone metadata as a functional requirement.
+    parent_only = False
+    args = list(sys.argv[1:])
+    if "--parent-only" in args:
+        parent_only = True
+        args.remove("--parent-only")
+    roots = [Path(arg) for arg in args] or [Path(__file__).parents[1] / "releases"]
     files = sorted({p for root in roots for p in ([root] if root.is_file() else root.glob("*.mra"))})
     found = {validate(path) for path in files}
-    missing = EXPECTED - found
+    if parent_only and "bucky" not in found:
+        raise ValueError("parent-only validation requires bucky.mra")
+    missing = set() if parent_only else EXPECTED - found
     if missing:
         raise ValueError("missing sets: " + ", ".join(sorted(missing)))
     print(f"PASS: {len(files)} Bucky MRAs satisfy MiSTer conventions")

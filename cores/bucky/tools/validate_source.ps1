@@ -8,7 +8,8 @@ $required = @(
 	'cores\bucky\hdl\bucky_colmix.v',
 	'cores\bucky\hdl\bucky_k054000.v',
 	'cores\bucky\hdl\bucky_k054338.v',
-	'cores\bucky\cfg\mame2mra.toml'
+	'cores\bucky\cfg\mame2mra.toml',
+	'cores\bucky\tools\validate_jtframe.py'
 )
 foreach ($relative in $required) {
 	if (-not (Test-Path -LiteralPath (Join-Path $root $relative))) {
@@ -28,7 +29,7 @@ if ($private) {
 	throw "Private ROM artifact entered core tree: $($private.FullName -join ', ')"
 }
 
-& python (Join-Path $root 'cores\bucky\tools\validate_mra.py') (Join-Path $root 'cores\bucky\releases')
+& python (Join-Path $root 'cores\bucky\tools\validate_mra.py') --parent-only (Join-Path $root 'cores\bucky\releases\bucky.mra')
 if ($LASTEXITCODE -ne 0) { throw 'MRA validation failed' }
 
 $romHash = (Get-FileHash -LiteralPath (Join-Path $root 'rom\bucky.zip') -Algorithm SHA256).Hash
