@@ -25,7 +25,15 @@ function Test-Component([string]$name, [string]$rtl, [string]$testbench) {
 	$exe = Join-Path $mdir "V$top.exe"
 	if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $mdir "V$top" }
 	if (-not (Test-Path -LiteralPath $exe)) { throw "Missing Verilator executable: $exe" }
-	Invoke-Checked $run @($exe)
+	# k054539's generated volume/pan/reverb images are kept beside the RTL;
+	# run that bench from the same directory so $readmemh resolves identically
+	# to the JTFRAME core build.
+	$simCwd = (Get-Location).Path
+	try {
+		if ($name -eq 'bucky_k054539') { Set-Location (Join-Path $root 'cores\bucky\hdl') }
+		Invoke-Checked $run @($exe)
+	}
+	finally { Set-Location $simCwd }
 }
 
 Test-Component 'bucky_k054000' 'cores\bucky\hdl\bucky_k054000.v' 'cores\bucky\hdl\sim\tb_bucky_k054000.sv'

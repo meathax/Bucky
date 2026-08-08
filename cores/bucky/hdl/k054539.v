@@ -76,7 +76,8 @@ wire update_at_keyon = regs[9'h12f][0];
 wire reg_updates     = ~regs[9'h12f][7];
 
 assign dout    = (addr == 9'h12c) ? active :
-                 (addr == 9'h12d) ? ((rd && regs[9'h12f][4]) ? rram_port_dout : 8'h00) :
+                 (addr == 9'h12d) ? ((rd && regs[9'h12f][4] && regs[9'h12e] == 8'h80) ?
+                                      rram_port_dout : 8'h00) :
                  regs[addr];
 assign timeout = 1'b0;
 assign st_dout = 8'd0;
