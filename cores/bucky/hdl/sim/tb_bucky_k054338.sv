@@ -55,6 +55,9 @@ module tb_bucky_k054338;
         mix_code=1;
         tick_expect(24'h807060); // exact half interpolation
 
+        wr(13,16'h0000);        // level 0 selects the back layer
+        tick_expect(24'h102040);
+
         wr(13,16'h0030);        // additive, level 16
         tick_expect(24'hf8d0a0); // front + half back, clamped
 

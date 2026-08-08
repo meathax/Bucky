@@ -76,16 +76,22 @@ function [7:0] mix_channel;
     input       additive;
     reg  [13:0] product;
     reg  [ 9:0] value;
+    reg  [ 5:0] inverse_level;
     begin
+        // Keep the products explicitly 14 bits.  Verilog's expression sizing
+        // rules are easy to misread for packed multiply/add expressions; the
+        // silicon's 8x5 products plus their sum need 14 bits before the >>5.
+        inverse_level = 6'd32 - {1'b0,level};
         if (!additive) begin
             // SiliconRE: 8x5 multiply/add interpolation, taking the scaled
             // high eight bits. Level 0 selects B; increasing level selects A.
-            product = front*level + back*(6'd32-level);
+            product = {6'd0,front} * {9'd0,level} +
+                      {6'd0,back}  * {8'd0,inverse_level};
             value   = product >> 5;
         end else begin
             // Documented additive mode: A + B*(32-level)/32.
-            product = back*(6'd32-level);
-            value   = front + (product >> 5);
+            product = {6'd0,back} * {8'd0,inverse_level};
+            value   = {2'd0,front} + (product >> 5);
         end
         mix_channel = (value>10'd255) ? 8'hff : value[7:0];
     end
