@@ -14,8 +14,8 @@ JTFRAME_RELEASE
 # el vtimer del K056832 nunca avanza -> ni LVBL/VS ni frames -> el full-core sim gira infinito.
 # (Se perdio al adaptar el core desde xmen, que usa 6 porque su dot clock es 6MHz.)
 # moomesa = 8MHz: moo.cpp K053252(config, m_k053252, 32_MHz_XTAL/4) // 8MHz. -> pxl_cen 8M, pxl2_cen 16M.
-# NOTA: con el HTOTAL=456 provisional del vtimer da ~66Hz (real 60Hz); el timing fino es el TODO
-# de HW (HJUMP/CRTC K053252), no afecta a la validacion de valores.
+# El vtimer del K056832 usa HTOTAL=512/VTOTAL=264, la aproximacion representable del K053252
+# GX173 (8MHz / 512 / 264 = ~59.19Hz). La geometria fina sigue siendo un gate de la prueba HW.
 JTFRAME_PXLCLK=8
 JTFRAME_COLORW=8
 JTFRAME_WIDTH=384

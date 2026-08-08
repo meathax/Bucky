@@ -9,11 +9,11 @@
 
     PENDIENTE (validacion por escenas / Fase siguiente):
       - Empaquetado EXACTO de pixel hacia el K053251 en colmix (ci = f(colnib,pen)) — juez: sim==golden.
-      - Alpha K054338 (geiser) — delta extra en colmix.
+      - Integracion de alpha/sombra K054338 en escenas completas (el datapath independiente ya existe).
       - Carga por escena: la VRAM/regs del modulo son internos; para restore-ioctl habra que exponerlos
         como BRAM jtframe (como rungun) o cargar por el bus CPU en el testbench de escena.
-      - Timing HW: el vtimer usa HTOTAL=456 (limite 9 bits); para MiSTer real revisar HJUMP/CRTC K053252.
-      - Lectura CPU 16-bit (tilesys_dout) y separacion vram_cs(0x1a0000)/reg_cs(0x0c0000) en main (Fase 1).
+      - Timing HW: el vtimer usa HTOTAL=512 y VTOTAL=264 (objetivo K053252 ~=59.19 Hz); confirmar en MiSTer.
+      - Lectura CPU 16-bit (tilesys_dout) y separacion vram_cs(0x180000)/reg_cs(0x0c0000) en main (Fase 1).
 */
 module bucky_video(
     input             rst,
@@ -60,7 +60,7 @@ module bucky_video(
     input             objcha_n,
 
     output            vdtac,
-    input             tilesys_cs,   // VRAM window 0x1a0000
+    input             tilesys_cs,   // Bucky VRAM window 0x180000-0x183fff
     input             tilereg_cs,   // K056832 regs 0x0c0000
     input             tilereg_b_cs, // K056832 VSCCS regs 0x0d8000
     output            rst8,
@@ -110,7 +110,7 @@ wire [ 7:0] lyrf_pxl, lyra_pxl, lyrb_pxl, lyrc_pxl, dump_obj, obj_mmr;
 wire [ 1:0] lyra_mix, lyrb_mix, lyrc_mix;   // flag de mezcla por tile (attr[2]) - ses.24
 wire [ 4:0] lyro_pri;
 wire [ 1:0] shadow;
-wire [ 3:0] obj_amsb = 4'd0;   // TODO: dump ioctl de sprites (venia de jtriders_dump, eliminado)
+wire [ 3:0] obj_amsb = 4'd0;   // Release debug dump is disabled; the runtime sprite path uses the full 8MB ROM bus.
 wire [15:0] tile_din;
 wire [18:0] rom_addr;
 wire [ 1:0] rom_lyr;
@@ -207,7 +207,7 @@ cowboys_k056832 u_scroll(
     .debug_bus  ( debug_bus )
 );
 
-assign tile_irqn = 1'b1;   // TODO Fase 1: IRQ4 vblank del K056832/CRTC
+assign tile_irqn = 1'b1;   // Bucky map has no K056832 IRQ window; IRQ4 comes from object DMA.
 
 /* verilator tracing_on */
 assign ommra = {cpu_addr[3:1],cpu_dsn[1]};
@@ -361,7 +361,7 @@ bucky_colmix u_colmix(
     .lhbl       ( lhbl      ),
     .lvbl       ( lvbl      ),
 
-    // CPU interface (paleta 0x1c0000, prio K053251 0x0cc000)
+    // CPU interface (Bucky palette 0x1b0000, prio K053251 0x0cc000)
     .cpu_addr   (cpu_addr[13:1]),
     .cpu_we     ( cpu_weg   ),
     .cpu_din    ( pal_dout  ),

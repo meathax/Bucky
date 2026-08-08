@@ -27,7 +27,7 @@ module cowboys_k056832(
     output     [ 8:0] hdump, vdump, vrender, vrender1,
 
     // CPU (68000, bus 16b)
-    input             vram_cs,     // ventana 0x1a0000
+    input             vram_cs,     // Bucky ventana 0x180000-0x183fff
     input             reg_cs,      // regs 0x0c0000
     input             regb_cs,     // VSCCS regs 0x0d8000
     input             cpu_we,

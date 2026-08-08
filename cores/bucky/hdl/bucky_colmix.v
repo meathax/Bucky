@@ -82,7 +82,6 @@ wire [ 7:0] pal_r2, pal_g2, pal_b2; // lectura de paleta del color "back"
 wire        front_a, front_b, front_c;   // one-hot: qué capa de scroll es la frontal (layer[2])
 reg  [ 5:0] pri_a, pri_b, pri_c;    // prioridades snoopeadas de CI2/CI3/CI4 (mmr 2/3/4)
 wire        do_blend;
-wire [23:0] blended_bgr;
 
 // Paleta xRGB_888 (GX173: 4096 entries -> 2 words/color @0x1b0000).
 // word par (cpu_addr[1]=0) low byte = R; word impar (cpu_addr[1]=1): high byte = G, low byte = B.
@@ -91,7 +90,7 @@ wire [11:0] cpu_cidx = cpu_addr[13:2];   // índice de color (0..4095)
 wire        we_r = pal_cs & cpu_we & ~cpu_addr[1] & ~cpu_dsn[0];
 wire        we_g = pal_cs & cpu_we &  cpu_addr[1] & ~cpu_dsn[1];
 wire        we_b = pal_cs & cpu_we &  cpu_addr[1] & ~cpu_dsn[0];
-// ⚠ El byte 'x' de xRGB_888 (byte ALTO del word PAR) NO lo usa el vídeo... pero en la PLACA 0x1c0000 es
+// ⚠ El byte 'x' de xRGB_888 (byte ALTO del word PAR) NO lo usa el vídeo... pero en la PLACA Bucky 0x1b0000 es
 // **RAM NORMAL de 16 bits**: lo que escribes, lo relees. Sin este banco se PERDIA (no habia `we` para el)
 // y `cpu_din` devolvia {8'h00, cr} -> una relectura de un word par NO casaba con lo escrito.
 // Consecuencia REAL (no teorica): el POST hace un test de RAM (escribe 5555/aaaa y relee) sobre la paleta
@@ -101,7 +100,7 @@ wire        we_b = pal_cs & cpu_we &  cpu_addr[1] & ~cpu_dsn[0];
 wire        we_x = pal_cs & cpu_we & ~cpu_addr[1] & ~cpu_dsn[1];
 assign pcu_we    = pcu_cs & ~cpu_dsn[0] & cpu_we;
 assign cpu_din   = cpu_addr[1] ? {cg, cb} : {cx, cr};
-assign ioctl_din = 8'd0;   // TODO(full-core): volcado de paleta para restore de escena
+assign ioctl_din = 8'd0;   // Scene-dump path is intentionally deferred; savestates are not in v1.
 // Orden de precedencia en el pixel final: FIX (opaco) > blend alpha K054338 > backdrop > tile ganador.
 // Cuando alpha_en=0 -> do_blend=0 -> salida IDÉNTICA a la ruta validada (notspr 180/300/900).
 // (sesión 24) do_blend exige además `mix_front` (attr[2] del tile): solo se mezclan los tiles MARCADOS.
@@ -182,8 +181,6 @@ wire [23:0] bg_bgr   = { k38[1][7:0], k38[1][15:8], k38[0][7:0] };
 // ⚠️ En 1200 y 1350 golden y RTL DIVERGEN DE MAME a proposito (~6400 px): ahi el oraculo es la PLACA,
 //    no MAME. NO lo "arregles" volviendo a casar con MAME. Ver HANDOFF "SESION 25" y GAPS C-17.
 wire        layers_enable = k38[15][0];
-wire [ 4:0] mixlv    = k38[13][4:0];
-wire [ 7:0] alpha_lv = {mixlv, mixlv[4:2]};   // 5b->8b (=set_alpha_level de MAME)
 // flag de mezcla del pixel de la capa FRONTAL (la unica que el K054338 mezcla en moo)
 wire [ 1:0] mix_front = ({2{front_a}} & lyra_mix) | ({2{front_b}} & lyrb_mix) | ({2{front_c}} & lyrc_mix);
 
@@ -210,44 +207,6 @@ end
 assign front_a = sl2==2'd0;
 assign front_b = sl2==2'd1;
 assign front_c = sl2==2'd2;
-
-// blend exacto (src*a + dst*(255-a))/255, con floor división por 255 vía mult-shift (0x8081>>23).
-// ---------------- SOMBRA: delta RGB ADITIVO del K054338 (sesion 24) ----------------
-// ANTES esto era `{b8>>1, g8>>1, r8>>1}` — una MITAD hardcodeada. El HW no hace eso:
-//   k054338.cpp:88-93  ->  d = m_regs[K338_REG_SHAD1R + i] & 0x1ff; if (d >= 0x100) d -= 0x200;
-//                          palette.set_shadow_dRGB32(tabla, dR, dG, dB, noclip)
-// Es un DELTA CON SIGNO (9 bits) que se SUMA a cada canal y se satura. Y hay TRES tablas:
-//   shd_out==1 -> k38[2..4]   shd_out==2 -> k38[5..7]   shd_out==3 -> k38[8..10]   (R,G,B)
-// El K053251 ya nos da cual por `shd_out[1:0]` (jtcolmix_053251.v:83-87,138) y nosotros lo estabamos
-// APLASTANDO con `|shd_out` para aplicar el ÷2 fijo.
-// MEDIDO en todos los volcados: los 9 registros valen 0x01c0 => delta = -64 (no -50%).
-//   color 200 -> HW 136 vs ÷2 100  |  color 128 -> 64 en ambos (coincidencia)  |  color 60 -> HW 0 vs 30
-// => con ÷2 las sombras salen MAS OSCURAS en tonos claros: el "se ven muy solidas" reportado.
-// ⚠️ El golden NO modela sombras (cero referencias) => `sim==golden` NO puede validar esto todavia.
-// ⚠️ No implementado el modo `noclip` (K338_CTL_CLIPSL, k38[15][5]): vale 0 en todo lo medido => se
-//    satura siempre. Si alguna escena lo pone a 1, hay que revisar (MAME lo pasa a set_shadow_dRGB32).
-wire [15:0] shdR = shd_out==2'd1 ? k38[2] : shd_out==2'd2 ? k38[5] : k38[ 8];
-wire [15:0] shdG = shd_out==2'd1 ? k38[3] : shd_out==2'd2 ? k38[6] : k38[ 9];
-wire [15:0] shdB = shd_out==2'd1 ? k38[4] : shd_out==2'd2 ? k38[7] : k38[10];
-
-function [7:0] shd_add( input [7:0] c, input [15:0] rg );
-    reg signed [10:0] d, s;
-    begin
-        d = $signed({{2{rg[8]}}, rg[8:0]});      // 9b con signo -> 11b
-        s = $signed({3'b0, c}) + d;
-        shd_add = s[10]      ? 8'd0   :          // negativo -> 0
-                  (s > 255)  ? 8'd255 : s[7:0];  // satura arriba
-    end
-endfunction
-
-function [7:0] blend8( input [7:0] fr, input [7:0] bk, input [7:0] a );
-    reg [16:0] num; reg [31:0] mul;
-    begin
-        num = fr*a + bk*(8'd255 - a);
-        mul = num * 32'd32897;      // 0x8081
-        blend8 = mul[30:23];
-    end
-endfunction
 
 always @(posedge clk, posedge rst) begin
     if( rst ) begin
@@ -398,11 +357,8 @@ jtframe_sh #(.W(1),.L(1)) u_blenddly(.clk(clk),.clk_en(pxl_cen),.din(blend_en_no
 jtframe_sh #(.W(1),.L(1)) u_colnbdly(.clk(clk),.clk_en(pxl_cen),.din(coln_b     ),.drop(colnb_a  ));
 assign do_blend = blend_en_a & ~fixop_a;
 
-// back = paleta[cout_b] o backdrop si el back es transparente. blended = front(bgr) sobre back.
+// back = paleta[cout_b] o backdrop si el back es transparente.
 wire [23:0] back_sel   = colnb_a ? bg_bgr : back_bgr;
-assign blended_bgr = { blend8(bgr[23:16], back_sel[23:16], alpha_lv),   // B
-                       blend8(bgr[15: 8], back_sel[15: 8], alpha_lv),   // G
-                       blend8(bgr[ 7: 0], back_sel[ 7: 0], alpha_lv) }; // R
 
 
 // SiliconRE schematic-derived K054338. K053251 selects the front and back

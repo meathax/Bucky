@@ -354,16 +354,25 @@ assign blt_stb   = blt_stb_r;
 assign blt_addr  = blt_addr_r;
 assign blt_dout  = blt_dout_r;
 
-// Destino del acceso ACTUAL del blitter (mismo decode que el principal). El POST usa
-// src1=paleta(0x1c0000), src2=work RAM(0x180000), dst=work RAM(0x181000); se admite ROM por
-// generalidad (MAME usa space.read_word, todo el mapa). VRAM/objram NO estan soportadas: el
-// juego no las usa como operando del blitter -> ver GAPS si algun dia aparece.
-wire blt_isram = (blt_addr_r[23:16]==8'h08) || (blt_addr_r[23:16]==8'h0a);
+// Destino del acceso ACTUAL del blitter (mismo decode que el principal). MAME hace los
+// read_word/write_word a traves del mapa completo, por lo que el HLE debe distinguir las
+// tres RAMs que realmente existen en GX173: work/extra RAM, K056832 VRAM y la paleta.
+// El POST de Bucky usa precisamente el area 0x180000/0x181000; si se devolviera la paleta
+// por defecto en ese camino, el N4 check podria fallar aunque el sumador fuese correcto.
+wire blt_isram = (blt_addr_r[23:16]==8'h08) || (blt_addr_r[23:16]==8'h0a) ||
+                 (blt_addr_r[23:14]==10'h061); // 0x184000-0x187fff extra tile RAM
+wire blt_isvram = (blt_addr_r[23:14]==10'h060); // 0x180000-0x183fff, incl. mirror
+wire blt_ispal = (blt_addr_r[23:14]==10'h06c); // 0x1b0000-0x1b3fff, 4096 entries
 wire blt_isrom = (blt_addr_r[23:19]==5'b00000) || (blt_addr_r[23:18]==6'b001000);
-wire [15:0] blt_rdata = blt_isram ? ram_dout : blt_isrom ? rom_data : pal_dout;
+wire [15:0] blt_rdata = blt_isram ? ram_dout : blt_isvram ? vram_dout :
+                        blt_isrom ? rom_data : blt_ispal ? pal_dout : 16'hffff;
 // SDRAM: handshake real (ram_ok/rom_ok). Paleta: es BRAM del colmix (q0 registrado, ~1 clk) y no
-// tiene handshake -> espera fija holgada de 4 ciclos. Coste total 255x3 accesos ~= 100 us: nada.
-wire blt_rdy   = blt_isram ? ram_ok : blt_isrom ? rom_ok : (blt_wc==2'd3);
+// tiene handshake -> espera fija holgada de 4 ciclos. La VRAM expone dos registros en serie
+// (dual-port qcpu y luego tile_din), así que además de esperar el wait-state de K056832 (`vdtac`)
+// dejamos el mismo margen fijo de 4 ciclos para no capturar la palabra anterior.
+// Coste total 255x3 accesos ~= 100 us: nada.
+wire blt_rdy   = blt_isram ? ram_ok : blt_isvram ? (vdtac && blt_wc==2'd3) :
+                 blt_isrom ? rom_ok : (blt_wc==2'd3);
 
 always @(posedge clk, posedge rst) begin
     if( rst ) begin
@@ -502,7 +511,7 @@ end
 always @(posedge clk, posedge rst) begin
     if( rst ) chk_n <= 0;
     else if( chk_arm && chk_n<8'd9 && ~ASn && RnW && ~BUSn && ~dtac_mux &&
-             ( {A,1'b0}==24'h1c0000 || {A,1'b0}==24'h181000 || {A,1'b0}==24'h180000 ) ) begin
+             ( {A,1'b0}==24'h1b0000 || {A,1'b0}==24'h181000 || {A,1'b0}==24'h180000 ) ) begin
         chk_n <= chk_n + 8'd1;
         $display("CHK: la CPU lee %06x -> cpu_din=%04x (pal_dout=%04x ram_dout=%04x pal_cs=%0d ram_cs=%0d)",
             {A,1'b0}, cpu_din, pal_dout, ram_dout, pal_cs, ram_cs);
@@ -625,7 +634,7 @@ reg        dpend_v;
 integer    k;
 // Volcar en la RAMA DE ERROR del check N4 (0x49f06), no solo en el handler de address error: para
 // entonces el anillo ya se ha llevado por delante los operandos culpables. Aqui los ultimos accesos
-// son justo pal[k] (0x1c0000+2k), dst[k] (0x181000+2k) y ram[k] (0x180000+2k) -> la direccion da el
+// son justo pal[k] (0x1b0000+2k), dst[k] (0x181000+2k) y vram[k] (0x180000+2k) -> la direccion da el
 // k que falla y el valor dice cual de los tres no vale lo que deberia.
 // 0x49f0e (NO 0x49f06): la palabra pegada al `beq` de 0x49f04 la PREFETCHA el 68k siempre -> vigilarla
 // disparaba este volcado en todos los runs, incluso con el check pasando. Ver la sonda n4_done.
@@ -654,7 +663,7 @@ always @(posedge clk, posedge rst) begin
             dumped <= 1;
             $display("*** FALLO en PC=%06x (0x49f06 = rama de error del check N4; 0x1000 = handler de address error)", {A,1'b0});
             $display("*** ultimos accesos a DATOS (antiguo -> reciente). En el check N4:");
-            $display("***   1c0000+2k = pal[k] | 181000+2k = dst[k] (blitter) | 180000+2k = ram[k]");
+            $display("***   1b0000+2k = pal[k] | 181000+2k = dst[k] (blitter) | 180000+2k = vram[k]");
             for( k=0; k<16; k=k+1 )
                 $display("***   dato %06x = %04x", {dtrc[(dptr+k)&4'hf],1'b0}, dval[(dptr+k)&4'hf]);
             $display("*** backtrace de PC (antiguo -> reciente):");

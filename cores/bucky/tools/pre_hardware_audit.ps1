@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $bucky = Join-Path $root 'cores\bucky'
+$mameMap = 'D:\Arcade\AI\mame289\src\mame\konami\moo.cpp'
 
 function Invoke-Checked([string]$program, [string[]]$arguments) {
 	& $program @arguments
@@ -37,6 +38,33 @@ Invoke-Checked $yosys @('-Q', '-p', 'read_verilog -sv cores/bucky/hdl/bucky_colm
 
 # Parse the full main-map port shell without instantiating external JTFRAME cells.
 Invoke-Checked $yosys @('-Q', '-p', 'read_verilog -sv -D NOMAIN cores/bucky/hdl/bucky_main.v; hierarchy -top bucky_main; proc; opt; check')
+# Also parse the synthesizable CPU/blitter branch.  NOMAIN intentionally skips
+# that branch, so this catches syntax/width regressions in the parent POST path.
+Invoke-Checked $yosys @('-Q', '-p', 'read_verilog -sv cores/bucky/hdl/bucky_main.v')
+
+# Keep the parent protection path tied to the published GX173 map.  This is a
+# cheap guard against the common regression where the `a+2*b` datapath remains
+# intact but one of the mapped RAM windows silently falls through to open bus.
+$mainText = Get-Content -Raw (Join-Path $bucky 'hdl\bucky_main.v')
+foreach ($pattern in @(
+	'wire blt_isvram',
+	'wire blt_ispal',
+	'blt_isvram \? \(vdtac',
+	'blt_isvram \? vram_dout',
+	"blt_addr_r\[23:14\]==10'h060",
+	"blt_addr_r\[23:14\]==10'h06c"
+)) {
+	if ($mainText -notmatch $pattern) { throw "Parent blitter contract missing: $pattern" }
+}
+if (-not (Test-Path -LiteralPath $mameMap)) { throw "MAME source map missing: $mameMap" }
+$mameText = Get-Content -Raw -LiteralPath $mameMap
+foreach ($pattern in @(
+	'map\(0x180000, 0x181fff\).*k056832_device::ram_word_r',
+	'map\(0x184000, 0x187fff\)\.ram',
+	'map\(0x1b0000, 0x1b3fff\).*palette'
+)) {
+	if ($mameText -notmatch $pattern) { throw "MAME parent map contract missing: $pattern" }
+}
 
 # A pre-hardware audit must never silently become an RBF build or accept a
 # private/copyrighted artifact in the public source tree.
