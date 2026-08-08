@@ -5,6 +5,22 @@ import sys
 import xml.etree.ElementTree as ET
 
 EXPECTED = {"bucky", "buckyea", "buckyjaa", "buckyuab", "buckyaab", "buckyaa"}
+PARENT_ROMS = {
+    "173eab02.q6": "9b45f122",
+    "173eab01.q5": "7785ac8a",
+    "173a04.t6": "7dd54d6f",
+    "173a03.t5": "cd724026",
+    "173a07.f5": "4cdaee71",
+    "173a05.t8": "d14333b4",
+    "173a06.t10": "6541a34f",
+    "173a10.b8": "42fb0a0c",
+    "173a11.a8": "b0d747c4",
+    "173a12.b10": "0fc2ad24",
+    "173a13.a10": "4cf85439",
+    "173a08.b6": "dcdded95",
+    "173a09.a6": "c93697c4",
+    "bucky.nv": "6a5986f3",
+}
 
 
 def text(root: ET.Element, tag: str) -> str:
@@ -45,6 +61,17 @@ def validate(path: Path) -> str:
         errors.append("three action buttons are required")
     if text(root, "players") != "4":
         errors.append("four-player metadata is required")
+    if name == "bucky":
+        main_rom = root.find("rom[@index='0']")
+        parts = {} if main_rom is None else {
+            node.attrib.get("name", ""): node.attrib.get("crc", "")
+            for node in main_rom.findall(".//part[@name]")
+        }
+        if parts != PARENT_ROMS:
+            errors.append("parent ROM names/CRCs do not match MAME EAB declarations")
+        interleave = [] if main_rom is None else main_rom.findall("interleave")
+        if [node.attrib.get("output") for node in interleave] != ["16", "16", "32", "64"]:
+            errors.append("parent interleave widths must be 16,16,32,64")
     if errors:
         raise ValueError(f"{path}: " + "; ".join(errors))
     return name
