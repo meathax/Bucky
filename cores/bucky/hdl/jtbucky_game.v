@@ -26,13 +26,15 @@ module jtbucky_game(
 wire        snd_irq, rmrd, rst8, dma_bsy,
             ccu_cs, romrd_cs, romrd_ok,
             pal_cs, cpu_we, tilesys_cs, tilereg_cs, tilereg_b_cs, objsys_cs, pcu_cs, alpha_cs, mute, objcha_n,
-            cpu_rnw, vdtac, tile_irqn, tile_nmin, snd_wrn,
+            cpu_rnw, vdtac, pal_wait, tile_irqn, tile_nmin, snd_wrn,
             objreg_cs, pair_we;
-wire [15:0] pal_dout, oram_dout, tilesys_dout, romrd_dout;
+wire [15:0] pal_dout, alpha_dout, oram_dout, tilesys_dout, romrd_dout;
+wire  [ 7:0] pcu_dout;
 wire [15:0] video_dumpa;
 wire [ 7:0] ccu_dout;
 wire [ 8:0] video_vdump;
 wire [13:1] oram_addr;
+wire [15:0] obj_cpu_addr;
 reg  [ 7:0] debug_mux;
 // reg  [ 2:0] game_id;
 // reg         cowboys;
@@ -76,7 +78,7 @@ always @(posedge clk) begin
     else scr_lat_cyc<=scr_lat_cyc+16'd1;
     if(scr_ok & ~scr_ok_d) begin
         scr_nok=scr_nok+1; scr_latsum=scr_latsum+scr_lat_cyc;
-        if(scr_lat_cyc>scr_latmax) scr_latmax=scr_lat_cyc;
+        if({16'd0,scr_lat_cyc}>scr_latmax) scr_latmax={16'd0,scr_lat_cyc};
         if(scr_lat_cyc<4)       scr_lb0 =scr_lb0 +1;
         else if(scr_lat_cyc<8)  scr_lb4 =scr_lb4 +1;
         else if(scr_lat_cyc<16) scr_lb8 =scr_lb8 +1;
@@ -85,9 +87,10 @@ always @(posedge clk) begin
     end
     if(~LVBL & lvbl_d) begin   // flanco de bajada de LVBL = fin de frame visible -> volcar stats
         scr_nframe=scr_nframe+1;
-        $display("[SCRLAT] frame=%0d reqs=%0d oks=%0d avg=%0.2f max=%0d reqs/linea=%0.1f hist[<4 <8 <16 <32 >=32]= %0d %0d %0d %0d %0d",
-            scr_nframe, scr_nreq, scr_nok, (scr_nok>0)?(scr_latsum/scr_nok):0.0, scr_latmax,
-            (scr_nframe>0)?(scr_nreq*1.0/scr_nframe/264.0):0.0, scr_lb0,scr_lb4,scr_lb8,scr_lb16,scr_lb32);
+        if ($test$plusargs("DIAG"))
+            $display("[SCRLAT] frame=%0d reqs=%0d oks=%0d avg=%0.2f max=%0d reqs/linea=%0.1f hist[<4 <8 <16 <32 >=32]= %0d %0d %0d %0d %0d",
+                scr_nframe, scr_nreq, scr_nok, (scr_nok>0)?(scr_latsum/scr_nok):0.0, scr_latmax,
+                (scr_nframe>0)?(scr_nreq*1.0/scr_nframe/264.0):0.0, scr_lb0,scr_lb4,scr_lb8,scr_lb16,scr_lb32);
     end
 end
 `endif
@@ -106,6 +109,7 @@ bucky_main u_main(
     .cpu_we         ( cpu_we        ),
     .cpu_dout       ( ram_din       ),
     .vdtac          ( vdtac         ),
+    .pal_wait       ( pal_wait      ),
     .tile_irqn      ( tile_irqn     ),
 
     .main_addr      ( main_addr     ),
@@ -129,6 +133,8 @@ bucky_main u_main(
     .vram_dout      ( tilesys_dout  ),
     .oram_dout      ( oram_dout     ),
     .pal_dout       ( pal_dout      ),
+    .alpha_dout     ( alpha_dout    ),
+    .pcu_dout       ( pcu_dout      ),
     .romrd_dout     ( romrd_dout    ),
     .romrd_ok       ( romrd_ok      ),
     .ccu_dout       ( ccu_dout      ),
@@ -182,6 +188,10 @@ bucky_k053252 u_ccu(
 
 assign oram_we   = ~ram_dsn & {2{cpu_we}};
 assign oram_addr = {main_addr[6:5], main_addr[1], main_addr[13:7], main_addr[4:2]};
+// The 68000 presents the Bucky sprite source at 0x090000.  main_addr is the
+// A1.. address bus (one increment per 16-bit word), so subtract the mapped
+// base before compacting the 0x80-word source slots in bucky_video.
+assign obj_cpu_addr = main_addr[16:1] - 16'h8000;
 
 /* verilator tracing_off */
 bucky_video u_video (
@@ -211,6 +221,7 @@ bucky_video u_video (
     // Object DMA
     .oram_we        ( oram_we       ),
     .oram_addr      ( oram_addr     ),
+    .obj_cpu_addr   ( obj_cpu_addr  ),
     .dma_bsy        ( dma_bsy       ),
 
     .objsys_cs      ( objsys_cs     ),
@@ -229,6 +240,9 @@ bucky_video u_video (
     .tilesys_dout   ( tilesys_dout  ),
     .objsys_dout    ( oram_dout     ),
     .pal_dout       ( pal_dout      ),
+    .alpha_dout     ( alpha_dout    ),
+    .pcu_dout       ( pcu_dout      ),
+    .pal_wait       ( pal_wait      ),
     .rmrd           ( rmrd          ),
     // SDRAM: 1 bus de tile serial (scr) + sprites (lyro)
     .scr_addr       ( scr_addr      ),

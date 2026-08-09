@@ -87,6 +87,37 @@ module k053246_dma(
 
 parameter K55673=0, K55673_DESC_SORT=0, EDGE_TRIGGER=0;
 
+`ifdef SIMULATION
+integer obj_dma_diag_count;
+integer obj_dma_active_diag_count;
+reg obj_dma_bsy_l;
+initial begin obj_dma_diag_count = 0; obj_dma_active_diag_count = 0; obj_dma_bsy_l = 1'b0; end
+always @(posedge clk) if ($test$plusargs("OBJ_DIAG")) begin
+    obj_dma_bsy_l <= dma_bsy;
+    if (!obj_dma_bsy_l && dma_bsy) begin
+        obj_dma_diag_count <= 0;
+        $display("OBJ_DMA_START dma_en=%b trig=%b mode8=%b lvbl=%b hs=%b", dma_en, dma_trig, mode8, lvbl, hs);
+    end
+    if (dma_bsy && !dma_clr && dma_addr[3:1] == 3'd0 && obj_dma_diag_count < 32) begin
+        $display("OBJ_DMA_WORD n=%0d addr=%04x data=%04x active=%b pri=%02x ok=%b",
+            obj_dma_diag_count, dma_addr, dma_data, dma_data[15], dma_data[7:0], dma_ok);
+        obj_dma_diag_count <= obj_dma_diag_count + 1;
+    end
+    // The MAME parent has live objects in source slots 0x50..0x6d.  Those
+    // slots are compact-DMA addresses 0x280..0x368; keep a separate probe so
+    // POST's zero-filled slots cannot consume the useful diagnostic budget.
+    if (dma_bsy && !dma_clr && dma_addr[3:1] == 3'd0 &&
+        dma_addr >= 13'h280 && dma_addr <= 13'h368 &&
+        obj_dma_active_diag_count < 96) begin
+        $display("OBJ_DMA_ACTIVE n=%0d addr=%04x data=%04x active=%b pri=%02x ok=%b",
+            obj_dma_active_diag_count, dma_addr, dma_data, dma_data[15], dma_data[7:0], dma_ok);
+        obj_dma_active_diag_count <= obj_dma_active_diag_count + 1;
+    end
+    if (obj_dma_bsy_l && !dma_bsy)
+        $display("OBJ_DMA_DONE");
+end
+`endif
+
 wire        dma_we, hs_pos;
 reg  [ 1:0] lvbl_sh;
 reg  [11:1] dma_bufa;

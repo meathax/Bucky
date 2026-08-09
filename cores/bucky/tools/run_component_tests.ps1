@@ -19,6 +19,10 @@ function Test-Component([string]$name, [string]$rtl, [string]$testbench) {
 		# clocked component benches use timing, while the full-core harness is
 		# the savable/checkpointed model required by the debug workflow.
 		'--binary', '--timing', '-Wall', '-Wno-fatal',
+		# The current MSYS2/UCRT Verilator runtime is built with the legacy
+		# libstdc++ ABI.  Keep this explicit so the checked-in runner links
+		# identically from PowerShell and from the documented UCRT shell.
+		'-CFLAGS', '-D_GLIBCXX_USE_CXX11_ABI=0',
 		'--top-module', $top, '--Mdir', $mdir, '--build', '-j', '0',
 		(Join-Path $root $rtl), (Join-Path $root $testbench)
 	)

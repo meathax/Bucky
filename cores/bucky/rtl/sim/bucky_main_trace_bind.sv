@@ -10,6 +10,7 @@ module bucky_main_trace_bind(
 	input  logic        udsn,
 	input  logic        ldsn,
 	input  logic [23:1] address_word,
+	input  logic [23:1] pc_word,
 	input  logic [15:0] read_data,
 	input  logic [15:0] write_data
 );
@@ -19,6 +20,11 @@ module bucky_main_trace_bind(
 	wire [23:0] address = {address_word,1'b0};
 	wire [1:0] lanes = {!udsn,!ldsn};
 	wire [15:0] data = rnw ? read_data : write_data;
+	// Use the completed program-fetch tracker in bucky_main rather than a
+	// CPU-implementation-specific hierarchy.  The differential model now
+	// defaults to the same fx68k implementation used by synthesis, while J68
+	// remains available as an explicit diagnostic option.
+	wire [31:0] pc_debug = {8'd0,pc_word,1'b0};
 
 	always_ff @(posedge clk or posedge rst) begin
 		if (rst) accepted_d <= 1'b0;
@@ -60,7 +66,7 @@ module bucky_main_trace_bind(
 
 	mister_bus_trace #(.DATA_BYTES(2)) u_trace(
 		.clk(clk), .reset(rst), .completed(completed), .cpu(8'd0),
-		.pc(32'd0), .rnw(rnw), .address({8'd0,address}), .data(data),
+		.pc(pc_debug), .rnw(rnw), .address({8'd0,address}), .data(data),
 		.lanes(lanes), .device(device_for(address))
 	);
 endmodule
@@ -68,5 +74,6 @@ endmodule
 bind bucky_main bucky_main_trace_bind u_bucky_main_trace_bind(
 	.clk(clk), .rst(rst), .asn(ASn), .busn(BUSn), .dtackn(dtac_mux),
 	.rnw(RnW), .udsn(UDSn), .ldsn(LDSn), .address_word(A),
+	.pc_word(pc_last),
 	.read_data(cpu_din), .write_data(cpu_dout_68k)
 );

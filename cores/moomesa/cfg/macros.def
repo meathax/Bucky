@@ -1,0 +1,74 @@
+CORENAME=MOOMESA
+GAMETOP=jtmoomesa_game_sdram
+
+JTFRAME_HEADER=16
+# El 3er boton fisico (B3) es IPT_UNKNOWN en moo.cpp (solo el set hermano "bucky" lo usa). BUTTONS=3
+# se mantiene por ahora como aislamiento probado en placa de un bug de coin con BUTTONS=2 (hay un bug
+# real sin localizar aun en el framework jtframe compartido) -- ver historial del core para el detalle.
+JTFRAME_BUTTONS=3
+JTFRAME_JOY_DURL
+# Sin esto el overlay de debug (jtframe_debug, `ifndef JTFRAME_RELEASE) queda SIEMPRE compilado.
+JTFRAME_RELEASE
+# Video configuration
+# JTFRAME_PXLCLK: genera pxl_cen/pxl2_cen (jtframe_pxlcen). SIN esto pxl_cen queda UNDRIVEN ->
+# el vtimer del K056832 nunca avanza -> ni LVBL/VS ni frames -> el full-core sim gira infinito.
+# (Se perdio al adaptar el core desde xmen, que usa 6 porque su dot clock es 6MHz.)
+# moomesa = 8MHz: moo.cpp K053252(config, m_k053252, 32_MHz_XTAL/4) // 8MHz. -> pxl_cen 8M, pxl2_cen 16M.
+# NOTA: con el HTOTAL=456 provisional del vtimer da ~66Hz (real 60Hz); el timing fino es el TODO
+# de HW (HJUMP/CRTC K053252), no afecta a la validacion de valores.
+JTFRAME_PXLCLK=8
+JTFRAME_COLORW=8
+JTFRAME_WIDTH=384
+JTFRAME_HEIGHT=224
+JTFRAME_OSD_TEST
+JTFRAME_STEREO
+
+JTFRAME_CREDITS_HSTART=24
+JTFRAME_DEBUG_VPOS=5
+
+JTFRAME_MR_DDRLOAD
+
+# More RAM needed
+SND_RAMW=13
+
+# ses.34: lyro (banco 3, sprites) a burst-4 (64 bits) -> BURSTLEN=64 global. Lo consume el slot custom
+# cowboys_lyro64 (block-cache de linea 64-bit): 1 lectura de bus por tile en vez de 2 -> corte del vagon
+# 16.62%->7.23% en el oraculo fiel. Patron probado (cps1/outrun/twin16; simson lo trae comentado).
+# ⚠ Regenera el qsf: si NO regeneras, anade tambien VERILOG_MACRO JTFRAME_BA3_LEN=64 al moomesa.qsf a mano.
+JTFRAME_BA3_LEN=64
+
+# default EEPROM needed to prevent game from booting upside down with error
+JTFRAME_IOCTL_RD=128
+
+[mister]
+JTFRAME_ARX=4
+JTFRAME_ARY=3
+JTFRAME_OSD_NOLOGO
+
+# --- CRT Adjust (piloto en asterix, generalizado a COLORW=8 para moomesa) ---
+# NO es una funcionalidad de jtframe: activa el ajuste de geometria CRT de
+# terceros (rmonic79, GNU GPLv3, github.com/rmonic79/MiSTer-CRT-Adjust),
+# vendorizado en modules/jtframe/hdl/video/rmonic79/crt_adjust.sv. Sustituye
+# los controles nativos "CRT H/V offset"/"CRT scale" (rango +-8) por
+# H-Position/V-Shift/H-Size con mucho mas rango. Probado en placa: menu OSD
+# "Video" -> CRT Adjust Off/On + H-Position/V-Shift/H-Size.
+CRT_ADJUST
+# HTOTAL/VTOTAL = el periodo REAL del vtimer (no VCNT_END+1: el contador
+# envuelve de VCNT_END a V_START, no a 0). Medidos y validados fieles al
+# chip real (053252 CRTC): HTOTAL=512, VTOTAL=264.
+CRT_ADJUST_HTOTAL=512
+CRT_ADJUST_VTOTAL=264
+# cuartos de clk_sys por pixel = (clk_sys/pixel)*4 = (48MHz/8MHz)*4 = 24
+CRT_ADJUST_RDBASE=24
+# HPOS_MODE=SYNCSHIFT: inferido por analogia de perfil de timing con asterix
+# (activo ~75% del total, front porch pequeno vs back porch mayor). Si al
+# mover H-Position aparece un bloque negro en un borde, tocaria CONTENTSHIFT.
+CRT_ADJUST_SYNCSHIFT
+# HPOS_SYNCSHIFT/HPOS_CONTENTSHIFT: macros INTERNOS de crt_adjust.sv (no
+# propios, no renombrar). Predefinidos porque Quartus Prime 17.0 no resuelve
+# fiable su guard `ifndef` interno dentro de un proyecto grande.
+HPOS_SYNCSHIFT=0
+HPOS_CONTENTSHIFT=1
+
+[mist|sidi]
+JTFRAME_SKIP

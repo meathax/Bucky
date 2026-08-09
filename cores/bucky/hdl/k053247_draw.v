@@ -131,6 +131,7 @@ assign busy = f_st!=F_IDLE;   // al scan: FETCH ocupado (draw puede seguir pinta
 // ── ETAPA DRAW: dibuja desde pre_data (sin esperar ROM) ────────────────────────────────────────
 reg  [63:0] d_data;
 reg [AW-1:0] d_xpos;
+localparam [AW-1:0] DIAG_XPOS = 300;
 reg [ZW-1:0] d_hzoom;
 reg [PW-5:0] d_pal;
 reg          d_hflip, d_hzkeep, d_nozoom;
@@ -149,7 +150,7 @@ wire [3:0]   pxl, pxl_hi, pxl_c, pxl_d;
 // ── DIAG CULL-X (ses.35): ¿este tile escribe ALGÚN píxel en la ventana visible [4..387]? Registra
 //    (xpos, hzoom, vis) al terminar el tile, para calibrar la banda de cull sin adivinar (verdad del oráculo).
 `ifdef VERILATOR
-localparam VIS_LO=9'd4, VIS_HI=9'd387;
+localparam [9:0] VIS_LO=10'd4, VIS_HI=10'd387;
 reg  dv_vis;
 `endif
 
@@ -170,9 +171,9 @@ assign buf_we    = d_busy & ~cnt[3];
 assign buf_we2   = d_busy & ~cnt[3] & four_px & readon;   // 2o px: en 4px SIEMPRE, como el 2px antiguo
 assign buf_we3   = d_busy & ~cnt[3] & four_px & readon;
 assign buf_we4   = d_busy & ~cnt[3] & four_px & readon;
-assign buf_addr2 = buf_addr + 1'd1;
-assign buf_addr3 = buf_addr + 2'd2;
-assign buf_addr4 = buf_addr + 2'd3;
+assign buf_addr2 = buf_addr + 10'd1;
+assign buf_addr3 = buf_addr + 10'd2;
+assign buf_addr4 = buf_addr + 10'd3;
 
 `ifdef VERILATOR
 // ¿alguno de los 4 puertos escribe AHORA en la ventana visible [4..387]? (wrap mod 512 automático)
@@ -268,13 +269,13 @@ always @(posedge clk) begin
                     pxl_data <= d_hflip ? (four_px ? pxl_data<<4 : pxl_data<<1)
                                         : (four_px ? pxl_data>>4 : pxl_data>>1);
                 end
-                if( moveon ) buf_addr <= buf_addr + (four_px ? 3'd4 : 3'd1);
+                if( moveon ) buf_addr <= buf_addr + (four_px ? 10'd4 : 10'd1);
                 if( readon && second &&
                     ( four_px ? cnt[2:0]==4 : cnt[2:0]==7 ) ) begin
                     d_busy <= 0; // 16 px dibujados
 `ifdef VERILATOR
                     // volcado de calibración: solo tiles del borde (candidatos a cull); vis=1 => NO cullar
-                    if( d_xpos>=9'd300 )
+                    if( d_xpos>=DIAG_XPOS )
                         $display("XCULLDIAG xpos=%0d hz=%0d nz=%0d vis=%0d",
                                  d_xpos, d_hzoom, d_nozoom, dv_vis|w_visnow);
 `endif

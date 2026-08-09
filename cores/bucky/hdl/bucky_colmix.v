@@ -35,6 +35,8 @@ module bucky_colmix(
     input      [ 1:0] cpu_dsn,
     input      [13:1] cpu_addr,
     output     [15:0] cpu_din,
+    output     [15:0] alpha_dout,
+    output      [ 7:0] pcu_dout,
 
     // Final pixels (K056832: 4 capas de tile 8b {colnib[7:4],pen[3:0]} + sprites)
     input      [ 7:0] lyrf_pxl,
@@ -54,6 +56,7 @@ module bucky_colmix(
     output     [ 7:0] red,
     output     [ 7:0] green,
     output     [ 7:0] blue,
+    output            pal_wait,
 
     // Debug
     input      [11:0] ioctl_addr,
@@ -75,6 +78,8 @@ wire [ 5:0] pri1;
 wire [ 8:0] ci0, ci1, ci2;
 wire [ 7:0] ci3, ci4;
 wire [ 1:0] shd_out, shd_in;
+wire [15:0] alpha_reg_dout;
+wire  [ 7:0] pcu_reg_dout;
 // K054338 alpha: 2ª instancia del K053251 ("back") + 2º puerto de paleta
 wire [10:0] cout_b;                 // color ganador SIN la capa frontal de scroll (=fondo del blend)
 wire        coln_b;                 // back transparente -> usar backdrop
@@ -100,7 +105,30 @@ wire        we_b = pal_cs & cpu_we &  cpu_addr[1] & ~cpu_dsn[0];
 wire        we_x = pal_cs & cpu_we & ~cpu_addr[1] & ~cpu_dsn[1];
 assign pcu_we    = pcu_cs & ~cpu_dsn[0] & cpu_we;
 assign cpu_din   = cpu_addr[1] ? {cg, cb} : {cx, cr};
+assign alpha_dout = alpha_reg_dout;
+assign pcu_dout   = pcu_reg_dout;
 assign ioctl_din = 8'd0;   // Scene-dump path is intentionally deferred; savestates are not in v1.
+
+`ifdef SIMULATION
+// Parent bring-up probe: the palette is the first point where valid tile
+// indices become visible RGB.  Keep this bounded and opt-in so normal tests
+// remain quiet and production RTL has no diagnostic state or behavior.
+integer pal_dbg_count;
+integer pal_nonzero_dbg_count;
+initial pal_dbg_count = 0;
+initial pal_nonzero_dbg_count = 0;
+always @(posedge clk) begin
+    if ($test$plusargs("PALDIAG") && pal_cs && cpu_we &&
+        ((pal_dbg_count < 96) || (cpu_dout != 16'd0 && pal_nonzero_dbg_count < 64))) begin
+        $display("[PALWR] addr=%03x cidx=%03x dsn=%b din=%04x we=%b/%b/%b cpu_addr1=%b",
+                 cpu_addr, cpu_cidx, cpu_dsn, cpu_dout, we_r, we_g, we_b,
+                 cpu_addr[1]);
+        if (pal_dbg_count < 96) pal_dbg_count = pal_dbg_count + 1;
+        if (cpu_dout != 16'd0) pal_nonzero_dbg_count = pal_nonzero_dbg_count + 1;
+    end
+end
+`endif
+
 // Orden de precedencia en el pixel final: FIX (opaco) > blend alpha K054338 > backdrop > tile ganador.
 // Cuando alpha_en=0 -> do_blend=0 -> salida IDÉNTICA a la ruta validada (notspr 180/300/900).
 // (sesión 24) do_blend exige además `mix_front` (attr[2] del tile): solo se mezclan los tiles MARCADOS.
@@ -137,6 +165,15 @@ jtframe_sh #(.W(8),.L(2)) u_fixdly(.clk(clk),.clk_en(pxl_cen),.din(lyrf_pxl),.dr
 
 // ---------------- K054338: registros (0x0ca000) + backdrop fill (+ alpha, parcial) ----------------
 reg  [15:0] k38[0:15];
+// K054338 page-1 sequencing: register accesses have a direct DTACK path,
+// while palette-RAM accesses are arbitrated against the pixel slot.  During
+// active display, hold a CPU palette cycle until the next pixel-enable pulse
+// unless REG15.D4 requests CPU priority.  Blank periods never wait.  This is
+// deliberately a slot-level model (rather than a guessed fixed delay); the
+// exact phase and alpha-dependent slot occupancy remain differential-test
+// targets against the PCB/MAME traces.
+wire k338_cpu_priority = k38[15][4];
+assign pal_wait = pal_cs && lhbl && lvbl && !k338_cpu_priority && !pxl_cen;
 // contador de bucle LOCAL en named block (`integer ai` dentro de `begin:k38_rst`): Verilog-2001 legal
 // (Quartus rechaza `for(int ai...)` en un .v -> error 10170; ver k056832, sesion 18). Sigue LOCAL ->
 // evita el latch del `integer` de modulo en el reset (sesion 16).
@@ -242,6 +279,7 @@ k053251 u_k251(
     // dump to SD card
     .ioctl_addr ( ioctl_ram ? ioctl_addr[3:0] : debug_bus[3:0] ),
     .ioctl_din  ( dump_mmr  ),
+    .reg_dout   ( pcu_reg_dout ),
 
     .cout       ( pal_addr  ),
     .brit       ( brit_out  ),
@@ -312,6 +350,7 @@ k053251 u_k251_back(
     .shd_out    ( shd_out_b ),
     .ioctl_addr ( 4'd0      ),
     .ioctl_din  (           ),
+    .reg_dout   (           ),
     .cout       ( cout_b    ),
     .brit       ( brit_back ),
     .col_n      ( coln_b    )
@@ -377,7 +416,7 @@ bucky_k054338 u_k054338(
     .reg_addr        ( cpu_addr[4:1]    ),
     .reg_din         ( cpu_dout         ),
     .reg_dsn         ( cpu_dsn          ),
-    .reg_dout        (                  ),
+    .reg_dout        ( alpha_reg_dout   ),
     .front_bgr       ( k338_front       ),
     .back_bgr        ( back_sel         ),
     .mix_code        ( k338_mix         ),
@@ -393,9 +432,11 @@ function [7:0] k338_dac_channel;
     input [7:0] component;
     input [7:0] gain;
     reg [15:0] product;
+    reg [15:0] dac_sum;
     begin
         product = component * gain + 16'd127;
-        k338_dac_channel = (product + (product >> 8)) >> 8;
+        dac_sum = product + {8'd0,product[15:8]};
+        k338_dac_channel = dac_sum[15:8];
     end
 endfunction
 wire [23:0] k338_dac_bgr = {

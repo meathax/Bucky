@@ -41,6 +41,10 @@ module bucky_video(
     // Object DMA
     input      [13:1] oram_addr,
     input      [ 1:0] oram_we,
+    // Word offset within Bucky's 0x090000-0x09ffff sprite source RAM.
+    // main_addr carries the 68000 A1.. bus bits; the absolute base address
+    // must not leak into the compact K053247 object RAM address.
+    input      [15:0] obj_cpu_addr,
     // CPU interface
     input      [16:1] cpu_addr,
     input      [ 1:0] cpu_dsn,
@@ -51,6 +55,9 @@ module bucky_video(
     input             alpha_cs,     // K054338 regs 0x0ca000
     input             pal_cs,
     output     [15:0] pal_dout,
+    output     [15:0] alpha_dout,
+    output     [ 7:0] pcu_dout,
+    output            pal_wait,
     output     [15:0] tilesys_dout,
 
     output            dma_bsy,
@@ -183,7 +190,7 @@ cowboys_k056832 u_scroll(
     .reg_cs     ( tilereg_cs),
     .regb_cs    ( tilereg_b_cs),
     .cpu_we     ( cpu_weg   ),
-    .cpu_addr   (cpu_addr[13:1]),
+    .cpu_addr   (cpu_addr[12:1]),
     .cpu_dout   ( cpu_dout  ),
     .cpu_din    ( tile_din  ),
 
@@ -212,7 +219,7 @@ assign tile_irqn = 1'b1;   // Bucky map has no K056832 IRQ window; IRQ4 comes fr
 /* verilator tracing_on */
 assign ommra = {cpu_addr[3:1],cpu_dsn[1]};
 
-// MODELO DE OBJRAM (sesion 13). moomesa reparte 256 slots de sprite con paso 0x100 sobre los 64 kB de
+// MODELO DE OBJRAM (sesion 13). Bucky reparte 256 slots de sprite con paso 0x100 sobre los 64 kB de
 // 0x190000 (moo.cpp:416 `object_dma`: `src += 0x80` words, y solo las 8 primeras words de cada slot
 // importan). El K053246 escanea su RAM externa con paso 8 words (`k053246_dma.v:126-137`: lee [3:1]=0..6
 // y salta al siguiente bloque de 16 B). Son DOS espacios de direcciones distintos, y la conversion entre
@@ -220,8 +227,8 @@ assign ommra = {cpu_addr[3:1],cpu_dsn[1]};
 // ⭐ ESTO NO ES UNA HIPOTESIS: es lo que `ver/cowboys/tb_vfull.cpp:90-92` lleva 8 sesiones haciendo en C++
 // sobre el dump del oraculo (`src=N*0x80+w` -> `dst=N*8+w`) para dar `vfull 1800` = 0.0000% pixel-exacto.
 // El tb hacia la conversion FUERA del RTL, asi que el core real se quedo sin ella.
-//   juego (word) = {N[7:0], 4'd0, w[2:0]} = cpu_addr[15:1]   ->   N=cpu_addr[15:8], w=cpu_addr[3:1]
-// Las words con cpu_addr[7:4]!=0 NO pertenecen a ninguna entrada: no se escriben (si se escribieran,
+//   juego (word) = {N[7:0], 4'd0, w[2:0]} = obj_cpu_addr[15:0]
+// Las words con obj_cpu_addr[6:3]!=0 NO pertenecen a ninguna entrada: no se escriben (si se escribieran,
 // aliasearian sobre la word 0 del slot y machacarian el bit de activo).
 // El test de sprite RAM del POST (0x4a18e) SIGUE PASANDO: escribe y RELEE cada long EN EL ACTO con
 // patrones UNIFORMES (0 / 0xffffff), asi que la word aliaseada ya contiene ese mismo patron. (Es la misma
@@ -231,8 +238,11 @@ assign ommra = {cpu_addr[3:1],cpu_dsn[1]};
 // misma ordenacion en el DMA via LUT (`dma_bufa <= {sort_24x,3'd0}`) = como el chip real. Neto: identico.
 // RAMW=13 -> el DMA barre words 0..4095 (entradas 0..511); las 256..511 nunca se escriben => 0 => bit15=0
 // => descartadas. Por eso RAMW se queda en 13 y no hace falta RAM extra.
-assign orama    = { 2'd0, cpu_addr[15:8], cpu_addr[3:1] };
-assign orama_we = oram_we & {2{cpu_addr[7:4]==4'd0}};
+// The CPU window is word-addressed relative to 0x090000.  Its 0x80-word
+// source slots carry the slot number in bits [14:7]; K053247 stores only the
+// first eight words of each slot, so compact the slot number with [2:0].
+assign orama    = { 2'd0, obj_cpu_addr[14:7], obj_cpu_addr[2:0] };
+assign orama_we = oram_we & {2{objsys_cs && obj_cpu_addr[6:3]==4'd0}};
 
 // SONDA (sesion 12): saca el `cfg` REAL de dentro de `k053246_mmr` sin tocar nada compartido.
 // `cowboys_obj` -> `st_addr = ioctl_ram ? ioctl_addr : debug_bus` y `k053246_mmr: 5: st_dout <= cfg`,
@@ -247,6 +257,37 @@ assign obj_dbg = debug_bus;
 `endif
 
 `ifdef SIMULATION
+integer obj_src_diag_count;
+integer obj_live_diag_count;
+integer obj_nonzero_diag_count;
+integer obj_reg_diag_count;
+initial obj_src_diag_count = 0;
+initial obj_live_diag_count = 0;
+initial obj_nonzero_diag_count = 0;
+initial obj_reg_diag_count = 0;
+always @(posedge clk) if ($test$plusargs("OBJ_DIAG") && objsys_cs && cpu_we && obj_src_diag_count < 32) begin
+    $display("OBJ_SRC_WR n=%0d cpu_addr=%04x obj_off=%04x orama=%04x dsn=%b data=%04x we=%b",
+        obj_src_diag_count, cpu_addr, obj_cpu_addr, orama, cpu_dsn, cpu_dout, orama_we);
+    obj_src_diag_count <= obj_src_diag_count + 1;
+end
+always @(posedge clk) if ($test$plusargs("OBJ_DIAG") && objsys_cs && cpu_we &&
+                         obj_cpu_addr[14:7] >= 8'h40 && obj_cpu_addr[6:3] == 4'd0 &&
+                         obj_live_diag_count < 96) begin
+    $display("OBJ_LIVE_WR n=%0d cpu_addr=%04x obj_off=%04x orama=%04x dsn=%b data=%04x we=%b",
+        obj_live_diag_count, cpu_addr, obj_cpu_addr, orama, cpu_dsn, cpu_dout, orama_we);
+    obj_live_diag_count <= obj_live_diag_count + 1;
+end
+always @(posedge clk) if ($test$plusargs("OBJ_DIAG") && objsys_cs && cpu_we &&
+                         obj_cpu_addr[14:7] >= 8'h40 && obj_cpu_addr[14:7] <= 8'h70 &&
+                         obj_cpu_addr[6:3] == 4'd0 && cpu_dout[15] &&
+                         cpu_dout[7:0] != 8'h00 && cpu_dout != 16'h5555 &&
+                         cpu_dout != 16'haaaa && cpu_dout != 16'hffff &&
+                         obj_nonzero_diag_count < 96) begin
+    $display("OBJ_NONZERO_WR n=%0d cpu_addr=%04x obj_off=%04x orama=%04x dsn=%b data=%04x we=%b",
+        obj_nonzero_diag_count, cpu_addr, obj_cpu_addr, orama, cpu_dsn, cpu_dout, orama_we);
+    obj_nonzero_diag_count <= obj_nonzero_diag_count + 1;
+end
+
 // SONDA (sesion 12): que ve EXACTAMENTE el k053246_mmr en una escritura de registro.
 // Ojo: el tb de video NUNCA ejercita este camino — `k053246_mmr.v:51` hace `mmr_init[5][4]=1`,
 // o sea que en sim el mmr CARGA cfg de un dump y fuerza dma_en=1. Por eso `vfull` da sprites
@@ -257,9 +298,13 @@ assign obj_dbg = debug_bus;
 // Luego el fallo esta en el TRIGGER del DMA: dma_en && (lvbl_sh==2'b10 && hs_pos), que depende
 // de `hs` y `lvbl` — las señales que el tb de video INYECTA y el core real debe GENERAR.
 always @(posedge clk) if( objreg_cs && cpu_we ) begin
-    $display("OBJREG_WR ommra=%b (addr[2:1]=%0d) dsn=%b dout=%04x -> %s",
-        ommra, ommra[2:1], cpu_dsn, cpu_dout,
-        (ommra[2:1]==2'd2 && !cpu_dsn[0]) ? "LATCHEA cfg" : "no toca cfg");
+    if ($test$plusargs("DIAG") || ($test$plusargs("OBJ_DIAG") && obj_reg_diag_count < 64 &&
+        (cpu_dout[7:0] != 8'h00) && (cpu_dout[7:0] != 8'h20))) begin
+        $display("OBJREG_WR ommra=%b (addr[2:1]=%0d) dsn=%b dout=%04x -> %s",
+            ommra, ommra[2:1], cpu_dsn, cpu_dout,
+            (ommra[2:1]==2'd2 && !cpu_dsn[0]) ? "LATCHEA cfg" : "no toca cfg");
+        if ($test$plusargs("OBJ_DIAG")) obj_reg_diag_count <= obj_reg_diag_count + 1;
+    end
 end
 
 // ¿Pulsan `hs` y `lvbl` en el CORE REAL? El DMA necesita hs_pos (flanco de HS muestreado a pxl2_cen)
@@ -272,8 +317,9 @@ always @(posedge clk) begin
     if( ~hs_l & hs ) n_hs <= n_hs+1;
     if( lvbl_l2 & ~lvbl ) begin
         n_lvbl <= n_lvbl+1;
-        $display("VTIMER frame=%0d | hs_pos=%0d pxl2_cen=%0d (por frame) | MMRCFG cfg=%02x dma_en=%b",
-            n_lvbl, n_hs, n_p2c, obj_mmr, obj_mmr[4]);
+        if ($test$plusargs("DIAG"))
+            $display("VTIMER frame=%0d | hs_pos=%0d pxl2_cen=%0d (por frame) | MMRCFG cfg=%02x dma_en=%b",
+                n_lvbl, n_hs, n_p2c, obj_mmr, obj_mmr[4]);
         n_hs <= 0; n_p2c <= 0;
     end
 end
@@ -365,6 +411,9 @@ bucky_colmix u_colmix(
     .cpu_addr   (cpu_addr[13:1]),
     .cpu_we     ( cpu_weg   ),
     .cpu_din    ( pal_dout  ),
+    .alpha_dout ( alpha_dout ),
+    .pcu_dout   ( pcu_dout   ),
+    .pal_wait   ( pal_wait   ),
     .cpu_d8     ( cpu_dout[7:0] ),
     .cpu_dout   ( cpu_dout  ),
     .cpu_dsn    ( cpu_dsn   ),

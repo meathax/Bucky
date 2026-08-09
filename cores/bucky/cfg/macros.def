@@ -35,6 +35,9 @@ SND_RAMW=13
 # cowboys_lyro64 (block-cache de linea 64-bit): 1 lectura de bus por tile en vez de 2 -> corte del vagon
 # 16.62%->7.23% en el oraculo fiel. Patron probado (cps1/outrun/twin16; simson lo trae comentado).
 # ⚠ Regenera el qsf: si NO regeneras, anade tambien VERILOG_MACRO JTFRAME_BA3_LEN=64 al moomesa.qsf a mano.
+JTFRAME_BA0_LEN=64
+JTFRAME_BA1_LEN=64
+JTFRAME_BA2_LEN=64
 JTFRAME_BA3_LEN=64
 
 # default EEPROM needed to prevent game from booting upside down with error

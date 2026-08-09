@@ -76,13 +76,14 @@ module tb_bucky_k054000;
         wr(5'h07,8'h00); expect_status(1);
         wr(5'h0f,8'hff); expect_status(0);
 
-        // Boundary: +511 is in range, +512 is always a miss.
+        // Boundary from MAME's K054000 axis_check: with 0xff + 0xff
+        // semiaxes, +510 is in range and +511 is a miss.
         clear_regs();
-        wr(5'h01,8'h00); wr(5'h02,8'h01); wr(5'h03,8'hff);
+        wr(5'h01,8'h00); wr(5'h02,8'h01); wr(5'h03,8'hfe);
         wr(5'h15,8'h00); wr(5'h16,8'h00); wr(5'h17,8'h00);
         wr(5'h06,8'hff); wr(5'h0e,8'hff);
         expect_status(0);
-        wr(5'h03,8'h00); wr(5'h02,8'h02);
+        wr(5'h03,8'hff);
         expect_status(1);
 
         if (failures != 0) $fatal(1,"K054000 failures=%0d",failures);

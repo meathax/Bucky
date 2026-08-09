@@ -54,7 +54,8 @@ def projected(event: dict[str, Any], fields: list[str],
 
 def compare_stream(label: str, left: list[dict[str, Any]],
                    right: list[dict[str, Any]], fields: list[str],
-                   masks: dict[str, int], context: int) -> bool:
+                   masks: dict[str, int], context: int,
+                   allow_candidate_tail: bool) -> bool:
     common = min(len(left), len(right))
     mismatch = next(
         (index for index in range(common)
@@ -64,6 +65,17 @@ def compare_stream(label: str, left: list[dict[str, Any]],
     )
     if mismatch is None and len(left) == len(right):
         print(f"MATCH {label}: {len(left)} events")
+        return True
+
+    # A bounded RTL run often produces a strict prefix of a longer reference
+    # trace, while a long run may intentionally continue past the reference
+    # checkpoint.  Make the latter explicit rather than silently accepting any
+    # length mismatch.  The reference must still be completely present and
+    # every projected event must match.
+    if (mismatch is None and allow_candidate_tail and
+            len(right) >= len(left)):
+        print(f"MATCH {label}: reference prefix {len(left)} events; "
+              f"candidate continues for {len(right) - len(left)} events")
         return True
 
     if mismatch is None:
@@ -105,6 +117,9 @@ def main() -> int:
     parser.add_argument("--context", type=int, default=3)
     parser.add_argument("--per-cpu", action="store_true",
                         help="compare each CPU stream independently")
+    parser.add_argument("--allow-candidate-tail", action="store_true",
+                        help="accept a candidate trace that continues after "
+                             "the complete reference trace")
     args = parser.parse_args()
 
     if args.context < 0:
@@ -124,12 +139,13 @@ def main() -> int:
             matched = all(
                 compare_stream(f"cpu={cpu}", ref_cpus.get(cpu, []),
                                cand_cpus.get(cpu, []), fields, masks,
-                               args.context)
+                               args.context, args.allow_candidate_tail)
                 for cpu in cpus
             )
         else:
             matched = compare_stream("global", reference, candidate, fields,
-                                     masks, args.context)
+                                     masks, args.context,
+                                     args.allow_candidate_tail)
     except (OSError, ValueError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2

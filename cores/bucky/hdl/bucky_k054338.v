@@ -87,11 +87,14 @@ function [7:0] mix_channel;
             // high eight bits. Level 0 selects B; increasing level selects A.
             product = {6'd0,front} * {9'd0,level} +
                       {6'd0,back}  * {8'd0,inverse_level};
-            value   = product >> 5;
+            // product[13:5] is the mathematically defined scaled result;
+            // make the zero extension explicit instead of relying on the
+            // destination width to truncate the shift expression.
+            value   = {1'b0,product[13:5]};
         end else begin
             // Documented additive mode: A + B*(32-level)/32.
             product = {6'd0,back} * {8'd0,inverse_level};
-            value   = {2'd0,front} + (product >> 5);
+            value   = {2'd0,front} + {1'b0,product[13:5]};
         end
         mix_channel = (value>10'd255) ? 8'hff : value[7:0];
     end
@@ -101,9 +104,9 @@ reg signed [9:0] shd_b, shd_g, shd_r;
 always @* begin
     shd_r = 0; shd_g = 0; shd_b = 0;
     case (shd_sel)
-        2'd1: begin shd_r=$signed(regs[2][8:0]); shd_g=$signed(regs[3][8:0]); shd_b=$signed(regs[4][8:0]); end
-        2'd2: begin shd_r=$signed(regs[5][8:0]); shd_g=$signed(regs[6][8:0]); shd_b=$signed(regs[7][8:0]); end
-        2'd3: begin shd_r=$signed(regs[8][8:0]); shd_g=$signed(regs[9][8:0]); shd_b=$signed(regs[10][8:0]); end
+        2'd1: begin shd_r=$signed({regs[2][8],regs[2][8:0]}); shd_g=$signed({regs[3][8],regs[3][8:0]}); shd_b=$signed({regs[4][8],regs[4][8:0]}); end
+        2'd2: begin shd_r=$signed({regs[5][8],regs[5][8:0]}); shd_g=$signed({regs[6][8],regs[6][8:0]}); shd_b=$signed({regs[7][8],regs[7][8:0]}); end
+        2'd3: begin shd_r=$signed({regs[8][8],regs[8][8:0]}); shd_g=$signed({regs[9][8],regs[9][8:0]}); shd_b=$signed({regs[10][8],regs[10][8:0]}); end
         default: ;
     endcase
 end
@@ -114,7 +117,7 @@ function [7:0] add_shadow;
     input noclip;
     reg signed [10:0] value;
     begin
-        value = $signed({1'b0,component}) + delta;
+        value = $signed({3'b000,component}) + $signed({delta[9],delta});
         if (noclip) add_shadow = value[7:0];
         else if (value < 0) add_shadow = 8'h00;
         else if (value > 255) add_shadow = 8'hff;

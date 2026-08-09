@@ -55,6 +55,8 @@ module bucky_main(
     input         [15:0] oram_dout,
     input         [15:0] vram_dout,
     input         [15:0] pal_dout,
+    input         [15:0] alpha_dout,
+    input         [ 7:0] pcu_dout,
     input         [ 7:0] ccu_dout,
     input         [15:0] ram_dout,
     input         [15:0] rom_data,
@@ -63,6 +65,7 @@ module bucky_main(
     input                rom_ok,
     input                romrd_ok,
     input                vdtac,
+    input                pal_wait,
     input                tile_irqn,
 
     // video configuration
@@ -136,7 +139,7 @@ assign VPAn     = ~(&FC & ~ASn);
 assign iack     =  &FC & ~ASn;
 // blt_stall estanca al 68k DENTRO del propio ciclo de escritura del trigger (0x0ce018): la CPU
 // no completa el ciclo hasta que el blitter termina, igual que el chip real (que retiene el bus).
-assign dtac_mux = DTACKn | ~vdtac | blt_stall;
+assign dtac_mux = DTACKn | ~vdtac | blt_stall | pal_wait;
 // K054321 sound latch write (0x0d6000): LDS byte access
 assign pair_we  = pair_cs & ~RnW & ~LDSn;
 // K053260/PCM read strobe (unused path in moomesa reuse; keep inactive)
@@ -148,6 +151,7 @@ assign snd_wrn  = ~(sndirq_cs & ~RnW);
 // tile ROM readback 190000-191fff, palette 1b0000-1b3fff, data ROM 200000-23ffff.
 `ifdef SIMULATION
 reg none_cs;
+wire sim_diag = $test$plusargs("DIAG");
 `endif
 always @* begin
     rom_cs      = 0; ram_cs   = 0; obj_cs   = 0; vram_cs  = 0; pal_cs  = 0;
@@ -168,22 +172,22 @@ always @* begin
         // Exact custom-chip windows. The inherited nibble decode aliased every
         // device across an 8 KiB slot, which is not GX173 open-bus behavior.
         io_cs         = (eff_addr[23:17]==7'b0000_110); // 0c0000-0dffff
-        tilereg_cs    = (eff_addr[23: 6]==(24'h0c0000>>6));
-        objreg_cs     = (eff_addr[23: 3]==(24'h0c2000>>3)) |
-                        (eff_addr[23: 1]==(24'h0c4000>>1));
-        alpha_cs      = (eff_addr[23: 5]==(24'h0ca000>>5));
-        pcu_cs        = (eff_addr[23: 5]==(24'h0cc000>>5));
-        prot_cs       = (eff_addr[23: 5]==(24'h0ce000>>5));
-        ccu_cs        = (eff_addr[23: 5]==(24'h0d0000>>5));
-        collision_cs  = (eff_addr[23: 6]==(24'h0d2000>>6));
-        sndirq_cs     = (eff_addr[23: 1]==(24'h0d4000>>1));
-        pair_cs       = (eff_addr[23: 5]==(24'h0d6000>>5));
-        tilereg_b_cs  = (eff_addr[23: 3]==(24'h0d8000>>3));
-        p1p3_cs       = (eff_addr[23: 1]==(24'h0da000>>1));
-        p2p4_cs       = (eff_addr[23: 1]==(24'h0da002>>1));
-        in0_cs        = (eff_addr[23: 1]==(24'h0dc000>>1));
-        in1_cs        = (eff_addr[23: 1]==(24'h0dc002>>1));
-        control2_cs   = (eff_addr[23: 1]==(24'h0de000>>1));
+        tilereg_cs    = (eff_addr[23: 6]==18'h03000);
+        objreg_cs     = (eff_addr[23: 3]==21'h18400) |
+                        (eff_addr[23: 1]==23'h62000);
+        alpha_cs      = (eff_addr[23: 5]==19'h06500);
+        pcu_cs        = (eff_addr[23: 5]==19'h06600);
+        prot_cs       = (eff_addr[23: 5]==19'h06700);
+        ccu_cs        = (eff_addr[23: 5]==19'h06800);
+        collision_cs  = (eff_addr[23: 6]==18'h03480);
+        sndirq_cs     = (eff_addr[23: 1]==23'h6a000);
+        pair_cs       = (eff_addr[23: 5]==19'h06b00);
+        tilereg_b_cs  = (eff_addr[23: 3]==21'h1b000);
+        p1p3_cs       = (eff_addr[23: 1]==23'h6d000);
+        p2p4_cs       = (eff_addr[23: 1]==23'h6d001);
+        in0_cs        = (eff_addr[23: 1]==23'h6e000);
+        in1_cs        = (eff_addr[23: 1]==23'h6e001);
+        control2_cs   = (eff_addr[23: 1]==23'h6f000);
     end
 `ifdef SIMULATION
     none_cs = ~eff_busn & ~|{ rom_cs, ram_cs, obj_cs, vram_cs, pal_cs, romrd_cs,
@@ -242,6 +246,8 @@ always @(posedge clk) begin
                vram_cs    ? vram_dout       :  // ram_word_r: la VRAM del K056832 se lee en words
                pal_cs     ? pal_dout        :
                romrd_cs   ? romrd_dout       :
+               alpha_cs   ? alpha_dout       :
+               pcu_cs     ? {8'hff,pcu_dout} :
                ccu_cs     ? {8'hff,ccu_dout}  :
                collision_cs? {8'hff,collision_dout}:
                pair_cs    ? {8'hff,pair_dout}:
@@ -361,17 +367,22 @@ assign blt_dout  = blt_dout_r;
 // por defecto en ese camino, el N4 check podria fallar aunque el sumador fuese correcto.
 wire blt_isram = (blt_addr_r[23:16]==8'h08) || (blt_addr_r[23:16]==8'h0a) ||
                  (blt_addr_r[23:14]==10'h061); // 0x184000-0x187fff extra tile RAM
+// The GX173 protection engine can target the 0x090000 sprite source window.
+// It is a synchronous on-core object RAM port (not the SDRAM work-RAM client),
+// so reads use the object data return after the same bounded phase wait and
+// writes are accepted by the normal objsys_cs/oram_we path.
+wire blt_isobj = (blt_addr_r[23:16]==8'h09);
 wire blt_isvram = (blt_addr_r[23:14]==10'h060); // 0x180000-0x183fff, incl. mirror
 wire blt_ispal = (blt_addr_r[23:14]==10'h06c); // 0x1b0000-0x1b3fff, 4096 entries
 wire blt_isrom = (blt_addr_r[23:19]==5'b00000) || (blt_addr_r[23:18]==6'b001000);
-wire [15:0] blt_rdata = blt_isram ? ram_dout : blt_isvram ? vram_dout :
+wire [15:0] blt_rdata = blt_isram ? ram_dout : blt_isobj ? oram_dout : blt_isvram ? vram_dout :
                         blt_isrom ? rom_data : blt_ispal ? pal_dout : 16'hffff;
 // SDRAM: handshake real (ram_ok/rom_ok). Paleta: es BRAM del colmix (q0 registrado, ~1 clk) y no
 // tiene handshake -> espera fija holgada de 4 ciclos. La VRAM expone dos registros en serie
 // (dual-port qcpu y luego tile_din), así que además de esperar el wait-state de K056832 (`vdtac`)
 // dejamos el mismo margen fijo de 4 ciclos para no capturar la palabra anterior.
 // Coste total 255x3 accesos ~= 100 us: nada.
-wire blt_rdy   = blt_isram ? ram_ok : blt_isvram ? (vdtac && blt_wc==2'd3) :
+wire blt_rdy   = blt_isram ? ram_ok : blt_isobj ? (blt_wc==2'd3) : blt_isvram ? (vdtac && blt_wc==2'd3) :
                  blt_isrom ? rom_ok : (blt_wc==2'd3);
 
 always @(posedge clk, posedge rst) begin
@@ -455,8 +466,9 @@ always @(posedge clk, posedge rst) begin
             end else begin
                 blt_wc <= blt_wc + 2'd1;
                 if( blt_rdy ) begin
-                    $display("PROT: RELECTURA dst[0]=%06x -> %04x   (0000=escritura OK | 0080=veneno intacto)",
-                        {blt_dsb[23:1],1'b0}, blt_rdata);
+                    if (sim_diag)
+                        $display("PROT: RELECTURA dst[0]=%06x -> %04x   (0000=escritura OK | 0080=veneno intacto)",
+                            {blt_dsb[23:1],1'b0}, blt_rdata);
                     blt_stb_r <= 0; blt_ph <= 0; blt_busy_r <= 0; blt_st <= BLT_IDLE;
                 end
             end
@@ -477,20 +489,23 @@ always @(posedge clk) begin
     if( blt_st==BLT_WR && blt_ph && blt_rdy ) blt_nwr <= blt_nwr + 16'd1;
     if( blt_busy_r & ~blt_busy_l ) begin
         blt_shown <= 0; blt_nwr <= 0;
-        $display("PROT: blitter DISPARADO src1=%06x src2=%06x dst=%06x len=%0d",
-            blt_s1b, blt_s2b, blt_dsb, protram[15]);
+        if (sim_diag)
+            $display("PROT: blitter DISPARADO src1=%06x src2=%06x dst=%06x len=%0d",
+                blt_s1b, blt_s2b, blt_dsb, protram[15]);
     end
     // Primeras 4 operaciones con sus OPERANDOS: el check exige pal[k]==0 para todo k (ver
     // desensamblado 0x49efa). Si algun a=... sale != 0, el check NO puede pasar y el problema
     // esta en la PALETA (lectura con perdida del byte alto, §D), no en el blitter.
     if( blt_st==BLT_WR && !blt_ph && blt_shown<8'd4 ) begin
         blt_shown <= blt_shown + 8'd1;
-        $display("PROT:   op%0d dst=%06x <= a(pal)=%04x + 2*b(ram)=%04x => %04x",
-            blt_shown, {blt_dst,1'b0}, blt_a, (blt_dout_r-blt_a)>>1, blt_dout_r);
+        if (sim_diag)
+            $display("PROT:   op%0d dst=%06x <= a(pal)=%04x + 2*b(ram)=%04x => %04x",
+                blt_shown, {blt_dst,1'b0}, blt_a, (blt_dout_r-blt_a)>>1, blt_dout_r);
     end
     if( ~blt_busy_r & blt_busy_l )
-        $display("PROT: blitter FIN (ultimo dst=%06x dato=%04x) escrituras COMPLETADAS=%0d (deben ser 255)",
-            {blt_dst,1'b0}, blt_dout_r, blt_nwr);
+        if (sim_diag)
+            $display("PROT: blitter FIN (ultimo dst=%06x dato=%04x) escrituras COMPLETADAS=%0d (deben ser 255)",
+                {blt_dst,1'b0}, blt_dout_r, blt_nwr);
 end
 
 // ¿PASA el check de proteccion? Desensamblado: 0x49f04 `beq $49f28` (=dbra, sigue el bucle de 257
@@ -513,27 +528,12 @@ always @(posedge clk, posedge rst) begin
     else if( chk_arm && chk_n<8'd9 && ~ASn && RnW && ~BUSn && ~dtac_mux &&
              ( {A,1'b0}==24'h1b0000 || {A,1'b0}==24'h181000 || {A,1'b0}==24'h180000 ) ) begin
         chk_n <= chk_n + 8'd1;
-        $display("CHK: la CPU lee %06x -> cpu_din=%04x (pal_dout=%04x ram_dout=%04x pal_cs=%0d ram_cs=%0d)",
-            {A,1'b0}, cpu_din, pal_dout, ram_dout, pal_cs, ram_cs);
+        if (sim_diag)
+            $display("CHK: la CPU lee %06x -> cpu_din=%04x (pal_dout=%04x ram_dout=%04x pal_cs=%0d ram_cs=%0d)",
+                {A,1'b0}, cpu_din, pal_dout, ram_dout, pal_cs, ram_cs);
     end
 end
 
-// ⚠ TRAMPA DEL 68000: PREFETCH DE 2 WORDS. "el PC ha llegado a X" NO significa "X se ha ejecutado":
-// tras un `beq` el 68k YA HA BUSCADO las 2 palabras siguientes, se tome la rama o no. La sonda
-// anterior vigilaba 0x49f06 (la palabra pegada al `beq $49f28` de 0x49f04) y por eso gritaba
-// "CHECK FALLADO" SIEMPRE, incluso con el check pasando. Hay que vigilar direcciones FUERA de la
-// cola de prefetch (>= 3 words tras la bifurcacion):
-//   0x49f0e = `lea $141a38,A0` -> 4 words tras el beq: solo se busca si la rama de error se EJECUTA.
-//   0x49f34 = 2 instrucciones tras el `dbra` de 0x49f28 -> solo se busca al AGOTARSE el bucle (=OK).
-reg n4_done;
-wire n4_fetch = ~ASn & RnW & FC[1] & ~FC[0];  // = prog_fetch (se declara mas abajo; inline para no depender del orden)
-always @(posedge clk, posedge rst) begin
-    if( rst ) n4_done <= 0;
-    else if( !n4_done && n4_fetch ) begin
-        if( {A,1'b0}==24'h049f0e ) begin n4_done<=1; $display("*** N4: CHECK FALLADO (se EJECUTA la rama de error: 0x49f0e)"); end
-        if( {A,1'b0}==24'h049f34 ) begin n4_done<=1; $display("*** N4: CHECK SUPERADO (0x49f34: el dbra de 257 vueltas se agoto sin error) <<<"); end
-    end
-end
 `endif
 
 `ifdef SIMULATION
@@ -551,6 +551,16 @@ reg [31:0] n_prog, n_ram_w, n_vram_w, n_pal_w, n_obj_w, n_ctl2_w, n_irq5, n_irq4
 reg [31:0] n_dma, n_objreg;
 reg [ 7:0] cfg_seen;      // ultimo valor escrito al registro 5 del K053246 (= cfg; bit4 = dma_en)
 reg        dmab_l;
+integer    sound_diag_count;
+initial    sound_diag_count = 0;
+integer    post_ram_probe_count;
+initial    post_ram_probe_count = 0;
+integer    obj_cfg_ram_diag_count;
+initial    obj_cfg_ram_diag_count = 0;
+integer    prot_diag_count;
+initial    prot_diag_count = 0;
+integer    obj_bus_diag_count;
+initial    obj_bus_diag_count = 0;
 reg [15:0] frame_id;
 reg        lvbl_l, busn_l;
 wire       prog_fetch = ~ASn & RnW & FC[1] & ~FC[0]; // FC=x10 program space (user/supervisor)
@@ -588,87 +598,102 @@ always @(posedge clk, posedge rst) begin
             if( pal_cs      ) n_pal_w  <= n_pal_w +1;
             if( obj_cs      ) n_obj_w  <= n_obj_w +1;
             if( control2_cs ) n_ctl2_w <= n_ctl2_w+1;
+            // Capture actual writes into the active parent sprite-source
+            // slots. This is simulation-only evidence for the source-RAM
+            // address/byte-lane comparison against MAME.
+            if ($test$plusargs("OBJ_BUS_DIAG") && obj_cs &&
+                (frame_id >= 16'd400) && (eff_addr[15:8] >= 8'h40) &&
+                obj_bus_diag_count < 512) begin
+                $display("OBJ_BUS_WR pc=%06x addr=%06x dsn=%b data=%04x",
+                         {pc_last,1'b0}, {eff_addr,1'b0}, eff_dsn, cpu_dout_68k);
+                obj_bus_diag_count = obj_bus_diag_count + 1;
+            end
             if( objreg_cs   ) begin
                 n_objreg <= n_objreg+1;
                 // reg 5 del K053246 = cfg. El juego hace `move.b $180013,$c2005` (BYTE a impar -> LDS).
                 // Mismo decode que jt053246_mmr en modo 16-bit: case(cpu_addr[2:1])==2 + ~cpu_dsn[0].
                 if( eff_addr[2:1]==2'd2 && !eff_dsn[0] ) cfg_seen <= cpu_dout[7:0];
             end
+            // The parent sprite path should program the protection blitter
+            // through 0x0ce000-0x0ce01f. Keep this separate from the blitter
+            // state logger so we can tell a missing CPU write/decode from a
+            // broken state machine or memory handshake.
+            if ($test$plusargs("PROT_DIAG") && prot_cs && prot_diag_count < 128) begin
+                $display("PROT_WR addr=%06x dsn=%b data=%04x len=%04x trig=%b",
+                         {eff_addr,1'b0}, eff_dsn, cpu_dout_68k,
+                         protram[15], blt_trig);
+                prot_diag_count = prot_diag_count + 1;
+            end
+            // The parent POST stores its accumulated error word at $080bfc
+            // immediately before entering the diagnostic renderer at $1d24.
+            // Observe the real accepted bus write (rather than the CPU's
+            // internal stack, which is not the architectural D7 register) so
+            // a failing test can be identified without altering the design.
+            if ($test$plusargs("POST_DIAG") &&
+                ram_cs &&
+                ((eff_addr[23:1] == 23'h0405fe) ||
+                 (eff_addr[23:1] == 23'h0405ff))) begin
+                $display("[POSTRAM] pc=%06x addr=%06x dsn=%b data=%04x",
+                         {pc_last,1'b0}, {eff_addr,1'b0}, eff_dsn, cpu_dout);
+                post_ram_probe_count = post_ram_probe_count + 1;
+                // Earlier RAM self-tests deliberately touch the same mailbox
+                // words with 0x5555/0xaaaa/0xffff.  Only stop after the final
+                // sound/checksum phase has reached the post-1a00 code.
+                if ($test$plusargs("POST_DIAG_STOP") &&
+                    ({pc_last,1'b0} >= 24'h001a00) &&
+                    (eff_addr[23:1] == 23'h0405ff)) $finish;
+            end
+        end
+        if ($test$plusargs("PROT_DIAG") && blt_trig && prot_diag_count < 128) begin
+            $display("PROT_TRIG addr=%06x data=%04x len=%04x busy=%b",
+                     {eff_addr,1'b0}, cpu_dout_68k, protram[15], blt_busy_r);
+            prot_diag_count = prot_diag_count + 1;
+        end
+        // The game publishes K053246 DMA-enable bit 4 through the byte latch
+        // at 0x080013.  Probe only this address when requested so a RAM
+        // byte-lane/readback failure is distinguishable from a sprite ASIC
+        // problem without enabling the verbose general diagnostics.
+        if ($test$plusargs("OBJ_DIAG") && obj_cfg_ram_diag_count < 64 &&
+            // A0 is not present on the 68000 bus: an odd-byte access to
+            // 0x080013 is presented with the even word address 0x080012 and
+            // LDSn asserted.
+            ({A,1'b0} == 24'h080012) && ~ASn && ~BUSn &&
+            ((cpu_dout_68k[7:0] != 8'h00) && (cpu_dout_68k[7:0] != 8'h55) &&
+             (cpu_dout_68k[7:0] != 8'haa) && (cpu_dout_68k[7:0] != 8'hff) ||
+             (RnW && (cpu_din[7:0] != 8'h00) && (cpu_din[7:0] != 8'h55) &&
+                     (cpu_din[7:0] != 8'haa) && (cpu_din[7:0] != 8'hff)))) begin
+            $display("OBJ_CFG_RAM rnw=%b we=%b dsn=%b dout=%04x din=%04x ram_cs=%b ram_ok=%b",
+                RnW, cpu_we, {UDSn,LDSn}, cpu_dout_68k, cpu_din, ram_cs, ram_ok);
+            obj_cfg_ram_diag_count <= obj_cfg_ram_diag_count + 1;
+        end
+        // The parent POST polls K054321 at 0x0d6015 after sending Z80
+        // commands.  Keep an opt-in edge-level probe here so a failed POST
+        // can be separated into a main-bus decode, latch, or Z80 response
+        // problem without changing synthesizable behavior.
+        if ($test$plusargs("SOUND_DIAG") && sound_diag_count < 256 &&
+            pair_cs && !BUSn) begin
+            if (busn_l)
+                $display("[SOUND] addr=%06x rnw=%b we=%b dout=%02x pair=%02x din=%04x irq=%b",
+                         {eff_addr,1'b0}, RnW, cpu_we, cpu_dout[7:0],
+                         pair_dout, cpu_din, sndon);
+            sound_diag_count = sound_diag_count + 1;
         end
         if( irq5_ack ) n_irq5 <= n_irq5+1;
         if( irq4_ack ) n_irq4 <= n_irq4+1;
         if( lvbl_l & ~LVBL ) begin // caida de LVBL = 1 informe por frame
             frame_id <= frame_id+1;
-            $display("BOOT f=%0d PC=%06x bucle=[%06x-%06x] dato=[%06x-%06x] visto=[%06x-%06x] | wr ram=%0d vram=%0d pal=%0d obj=%0d ctl2=%0d | ctl2=%04x irq5en=%0d irq4en=%0d ack5=%0d ack4=%0d | objreg=%0d cfg=%02x dma_en=%0d DMA/f=%0d",
-                frame_id, {pc_last,1'b0}, {pcf_lo,1'b0}, {pcf_hi,1'b0}, {daf_lo,1'b0}, {daf_hi,1'b0},
-                {pc_lo,1'b0}, {pc_hi,1'b0},
-                n_ram_w, n_vram_w, n_pal_w, n_obj_w, n_ctl2_w,
-                cur_control2, irq5en, irq4en, n_irq5, n_irq4,
-                n_objreg, cfg_seen, cfg_seen[4], n_dma);
+            if (sim_diag)
+                $display("BOOT f=%0d PC=%06x bucle=[%06x-%06x] dato=[%06x-%06x] visto=[%06x-%06x] | wr ram=%0d vram=%0d pal=%0d obj=%0d ctl2=%0d | ctl2=%04x irq5en=%0d irq4en=%0d ack5=%0d ack4=%0d | objreg=%0d cfg=%02x dma_en=%0d DMA/f=%0d",
+                    frame_id, {pc_last,1'b0}, {pcf_lo,1'b0}, {pcf_hi,1'b0}, {daf_lo,1'b0}, {daf_hi,1'b0},
+                    {pc_lo,1'b0}, {pc_hi,1'b0},
+                    n_ram_w, n_vram_w, n_pal_w, n_obj_w, n_ctl2_w,
+                    cur_control2, irq5en, irq4en, n_irq5, n_irq4,
+                    n_objreg, cfg_seen, cfg_seen[4], n_dma);
             // contadores y rango `bucle` = POR FRAME; `visto` = acumulado. wr_* = ciclos de BUS reales.
             n_prog<=0; n_ram_w<=0; n_vram_w<=0; n_pal_w<=0; n_obj_w<=0; n_ctl2_w<=0;
             n_dma<=0; n_objreg<=0;   // por frame (cfg_seen NO: es un estado, no un contador)
             pcf_lo <= ~23'd0; pcf_hi <= 0;
             daf_lo <= ~23'd0; daf_hi <= 0;
-        end
-    end
-end
-`endif
-
-`ifdef SIMULATION
-// ---------------- BACKTRACE DEL FALLO (Fase 1, sesion 6) — solo simulacion ----------------
-// Los vectores 2 (bus error) y 3 (address error) apuntan AMBOS a 0x1000, que acaba en `nop; bra self`
-// (bucle infinito). Sintoma en la telemetria: PC clavado en bucle=[001006-00100a] con 0 escrituras.
-// Como BERRn esta atado a 1, solo puede ser ADDRESS ERROR (acceso word/long a direccion IMPAR).
-// Esto vuelca las ultimas 32 direcciones de PROGRAMA distintas + los ultimos accesos a DATOS,
-// para identificar QUE codigo salto/leyo mal. Se dispara UNA vez, al entrar en el handler.
-reg [23:1] trc[0:31];
-reg [23:1] dtrc[0:15];      // anillo de accesos a DATOS: dice QUE operando/cadena estaba tocando.
-reg [15:0] dval[0:15];      // ...y su VALOR. Sin el valor el anillo dice DONDE mira pero no QUE ve.
-reg [23:1] da_last;
-reg [ 4:0] tptr;
-reg [ 3:0] dptr;
-reg        dumped;
-reg [ 3:0] dpend;
-reg        dpend_v;
-integer    k;
-// Volcar en la RAMA DE ERROR del check N4 (0x49f06), no solo en el handler de address error: para
-// entonces el anillo ya se ha llevado por delante los operandos culpables. Aqui los ultimos accesos
-// son justo pal[k] (0x1b0000+2k), dst[k] (0x181000+2k) y vram[k] (0x180000+2k) -> la direccion da el
-// k que falla y el valor dice cual de los tres no vale lo que deberia.
-// 0x49f0e (NO 0x49f06): la palabra pegada al `beq` de 0x49f04 la PREFETCHA el 68k siempre -> vigilarla
-// disparaba este volcado en todos los runs, incluso con el check pasando. Ver la sonda n4_done.
-wire       in_fault = prog_fetch & ( (({A,1'b0}>=24'h1000) & ({A,1'b0}<=24'h100a))
-                                   | ({A,1'b0}==24'h049f0e) );
-always @(posedge clk, posedge rst) begin
-    if( rst ) begin
-        tptr <= 0; dptr <= 0; dumped <= 0; da_last <= 0; dpend <= 0; dpend_v <= 0;
-        for( k=0; k<32; k=k+1 ) trc[k] <= 0;
-        for( k=0; k<16; k=k+1 ) begin dtrc[k] <= 0; dval[k] <= 0; end
-    end else begin
-        // ultimos accesos a espacio de DATOS (FC=x01). OJO: los 2 ultimos seran 0x0c/0x0e = la LECTURA
-        // DEL VECTOR 3 que hace el propio 68k al fallar; los anteriores son el operando culpable.
-        if( ~ASn & ~FC[1] & FC[0] & (A!=da_last) ) begin
-            da_last <= A;
-            dtrc[dptr] <= A; dptr <= dptr+1;
-            dpend  <= dptr;
-            dpend_v<= RnW;       // solo tiene sentido para LECTURAS
-        end
-        // El dato NO esta listo al principio del ciclo (la SDRAM tarda). Refrescar durante TODO el
-        // strobe: el ultimo valor con ~BUSn es el que se lleva la CPU. (El intento anterior capturaba
-        // con BUSn ALTO y devolvia el dato del acceso ANTERIOR -> instrumento mentiroso.)
-        if( dpend_v & ~BUSn ) dval[dpend] <= cpu_din;
-        if( prog_fetch & (A!=pc_last) ) begin trc[tptr] <= A; tptr <= tptr+1; end
-        if( in_fault & ~dumped ) begin
-            dumped <= 1;
-            $display("*** FALLO en PC=%06x (0x49f06 = rama de error del check N4; 0x1000 = handler de address error)", {A,1'b0});
-            $display("*** ultimos accesos a DATOS (antiguo -> reciente). En el check N4:");
-            $display("***   1b0000+2k = pal[k] | 181000+2k = dst[k] (blitter) | 180000+2k = vram[k]");
-            for( k=0; k<16; k=k+1 )
-                $display("***   dato %06x = %04x", {dtrc[(dptr+k)&4'hf],1'b0}, dval[(dptr+k)&4'hf]);
-            $display("*** backtrace de PC (antiguo -> reciente):");
-            for( k=0; k<32; k=k+1 )
-                $display("***   %06x", {trc[(tptr+k)&5'h1f],1'b0});
         end
     end
 end
@@ -694,7 +719,10 @@ jt5911 #(.SIMFILE("nvram.bin")) u_eeprom(
     .dump_flag  (           )
 );
 
-jtframe_68kdtack_cen #(.W(6),.RECOVERY(1)) u_dtack(
+// Cached SDRAM waits create a bounded recovery debt during the long parent
+// POST.  The JTFRAME default total width (W+WD=12) saturates near frame 14;
+// retain the generated enables exactly and widen only that accumulator.
+jtframe_68kdtack_cen #(.W(6),.RECOVERY(1),.WD(12)) u_dtack(
     .rst        ( rst       ),
     .clk        ( clk       ),
     .cpu_cen    ( cpu_cen   ),
@@ -741,6 +769,7 @@ jtframe_m68k u_cpu(
     .DTACKn     ( dtac_mux    ),
     .IPLn       ( IPLn        )
 );
+
 `else
     initial begin
         obj_cs    = 0;

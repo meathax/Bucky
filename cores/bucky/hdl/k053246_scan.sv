@@ -352,23 +352,27 @@ always @(posedge clk) begin : A
             indr     <= 0;
             vlatch   <= vdump;
             if( scan_obj!=0 ) begin
-                $display("[FORK-COWBOYS] Obj scan did not finish. Last obj %X",scan_obj);
+                if ($test$plusargs("DIAG"))
+                    $display("[FORK-COWBOYS] Obj scan did not finish. Last obj %X",scan_obj);
                 missing <= missing + 1;
             end
             if(vdump==BOTTOM && missing!=0 ) begin
                 missing <= 0;
-                $display("%d uncompleted lines",missing);
+                if ($test$plusargs("DIAG")) $display("%d uncompleted lines",missing);
 `ifndef SYNTHESIS
                 if( tot_lines>0 )
-                    $display("[FORK-COWBOYS] presupuesto/linea: objetos=%0d en_zona=%0d ciclos_parado_por_dr_busy=%0d (media de %0d lineas)",
-                        tot_objs/tot_lines, tot_inzone/tot_lines, tot_stall/tot_lines, tot_lines);
+                    if ($test$plusargs("DIAG"))
+                        $display("[FORK-COWBOYS] presupuesto/linea: objetos=%0d en_zona=%0d ciclos_parado_por_dr_busy=%0d (media de %0d lineas)",
+                            tot_objs/tot_lines, tot_inzone/tot_lines, tot_stall/tot_lines, tot_lines);
                 if( tot_starts>0 )
-                    $display("[FORK-COWBOYS] dibujante: enviados/linea=%0d  ocupado/linea=%0d cen2  => %0d cen2 POR OBJETO",
-                        tot_starts/tot_lines, tot_busy/tot_lines, tot_busy/tot_starts);
+                    if ($test$plusargs("DIAG"))
+                        $display("[FORK-COWBOYS] dibujante: enviados/linea=%0d  ocupado/linea=%0d cen2  => %0d cen2 POR OBJETO",
+                            tot_starts/tot_lines, tot_busy/tot_lines, tot_busy/tot_starts);
                 if( tot_lines>0 )
-                    $display("[FORK-COWBOYS] reparto pasos/linea: skip(obj inactivo)=%0d setup=%0d draw+espera=%0d (fuera_de_zona=%0d) TOTAL=%0d de %0d disponibles",
-                        tot_skip/tot_lines, tot_setup/tot_lines, tot_draw/tot_lines, tot_nozone/tot_lines,
-                        (tot_skip+tot_setup+tot_draw)/tot_lines, tot_avail/tot_lines);
+                    if ($test$plusargs("DIAG"))
+                        $display("[FORK-COWBOYS] reparto pasos/linea: skip(obj inactivo)=%0d setup=%0d draw+espera=%0d (fuera_de_zona=%0d) TOTAL=%0d de %0d disponibles",
+                            tot_skip/tot_lines, tot_setup/tot_lines, tot_draw/tot_lines, tot_nozone/tot_lines,
+                            (tot_skip+tot_setup+tot_draw)/tot_lines, tot_avail/tot_lines);
                 tot_objs<=0; tot_inzone<=0; tot_stall<=0; tot_lines<=0; tot_busy<=0; tot_starts<=0;
                 tot_skip<=0; tot_setup<=0; tot_draw<=0; tot_nozone<=0; tot_avail<=0;
 `endif
@@ -426,8 +430,9 @@ always @(posedge clk) begin : A
                     {code[5],code[3],code[1]} <= {code[5],code[3],code[1]} + vsum;
 `ifndef SYNTHESIS
                     if( inzone && offscr_x )   // sprites Y-visibles que el X-cull descarta: los sospechosos
-                        $display("XCULL2 x2=%0d x2s=%0d Wpx=%0d hzoom=%0d obj=%0X band_s=[%0d..%0d]",
-                                 x2, x2s, Wpx, hzoom, scan_obj, cull_lo, cull_hi);
+                        if ($test$plusargs("DIAG"))
+                            $display("XCULL2 x2=%0d x2s=%0d Wpx=%0d hzoom=%0d obj=%0X band_s=[%0d..%0d]",
+                                     x2, x2s, Wpx, hzoom, scan_obj, cull_lo, cull_hi);
 `endif
                     if( ~inzone || offscr_x ) begin   // Y-cull  ||  X-cull (sprite 100% fuera en X, ses.35)
                         { indr, scan_sub } <= 0;

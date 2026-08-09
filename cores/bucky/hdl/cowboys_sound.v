@@ -34,7 +34,9 @@ module cowboys_sound(
 
     input           snd_irq,
     // ROM
-    output  [16:0]  rom_addr,
+    // Z80 program ROM: 0x0000-0x7fff fixed plus 16 x 0x4000 banked bytes.
+    // The bank latch uses all four low bits, so the physical address is 18 bits.
+    output  [17:0]  rom_addr,
     output  reg     rom_cs,
     input   [ 7:0]  rom_data,
     input           rom_ok,
@@ -69,6 +71,13 @@ wire                m1_n, mreq_n, rd_n, wr_n, iorq_n, rfsh_n, nmi_n,
 reg                 ram_cs, fm_cs,  k39_cs, mem_acc,
                     nmi_clrr, bank_we, k21_cs;
 wire  signed [15:0] fmx_l, fmx_r;   // salida cruda del jt51 (antes de trim)
+// The PCM engine exposes a 24-bit internal byte address.  The GX173 sample
+// region is 4 MiB, so the generated JTFRAME memory port carries its low 22
+// bits.  Keep the width adaptation on a named net: connecting an output port
+// directly to a concatenation is rejected by strict elaborators (and can hide
+// a real top-level memory-port defect).
+wire [23:0] pcm_addr_wide;
+assign pcm_addr = pcm_addr_wide[21:0];
 
 // trim de FM en vivo: (FM*fg)>>3, con clamp. fg de debug_bus[3:0], default 8 = UNIDAD.
 // El balance base FM/PCM lo fija el rcmix (mem.yaml); esto es solo el ajuste fino en vivo.
@@ -89,7 +98,7 @@ assign nmi_trig = fm_intn;
 assign nmi_clr  = nmi_clrr;
 assign latch_we = k21_cs && !wr_n;
 assign rom_hi   = A[15]? bank : {3'd0, A[14]};
-assign rom_addr = {rom_hi[2:0], A[13:0]};
+assign rom_addr = {rom_hi[3:0], A[13:0]};
 assign cpu_din  = rom_cs ? rom_data   :
                   ram_cs ? ram_dout   :
                   k39_cs ? k39_dout   :
@@ -132,17 +141,23 @@ end
 // ---------------------------------------------------------------------------
 `ifdef SIMULATION
 integer fk39_w, fk39_r, flatch;
-reg     k39w_d, k39r_d, k21r_d;
+reg     k39w_d, k39r_d, k21r_d, latch_we_d;
+integer fz80, z80_diag_count;
+reg     z80_bus_d;
 initial begin
     fk39_w = $fopen("k539_core_writes.txt","w");
     fk39_r = $fopen("k539_core_reads.txt","w");
     flatch = $fopen("snd_latch_reads.txt","w");
-    k39w_d = 0; k39r_d = 0; k21r_d = 0;
+    fz80 = $fopen("z80_core_trace.txt","w");
+    z80_diag_count = 0;
+    k39w_d = 0; k39r_d = 0; k21r_d = 0; latch_we_d = 0;
+    z80_bus_d = 0;
 end
 always @(posedge clk) begin
     k39w_d <= k39_cs && !wr_n;
     k39r_d <= k39_cs && !rd_n;
     k21r_d <= k21_cs && !rd_n;
+    latch_we_d <= latch_we;
     if( (k39_cs && !wr_n) && !k39w_d )  // flanco: 1 log por ciclo de bus
         $fwrite(fk39_w, "%03x %02x\n", A[10:0] & 11'h3ff, cpu_dout);
     if( (k39_cs && !rd_n) && !k39r_d )
@@ -150,6 +165,25 @@ always @(posedge clk) begin
     // lecturas del latch de comandos (68k->Z80): A[1:0] + dato leido + estado IRQ
     if( (k21_cs && !rd_n) && !k21r_d )
         $fwrite(flatch, "addr=%01x din=%02x intn=%b\n", A[1:0], latch_dout, int_n);
+
+    // The parent POST's second K054321 exchange is the current first
+    // divergence.  Keep this probe at the Z80 transaction boundary so the
+    // response can be attributed to an instruction/ROM/interrupt issue,
+    // rather than guessed from the 68k latch read alone.  The PC wire is
+    // exposed by the T80s simulation model and is absent from synthesis.
+    z80_bus_d <= (!mreq_n || !iorq_n) && (!rd_n || !wr_n);
+    if ($test$plusargs("Z80_DIAG") && z80_diag_count < 4000 &&
+        ((!mreq_n || !iorq_n) && (!rd_n || !wr_n)) && !z80_bus_d) begin
+        $fwrite(fz80, "pc=%04x a=%04x mreq=%b iorq=%b rd=%b wr=%b din=%02x dout=%02x latch=%b saddr=%01x\n",
+                u_cpu.u_sysz80_nvram.u_z80wait.u_z80_devwait.u_cpu.u_cpu.PC,
+                A, mreq_n, iorq_n, rd_n, wr_n, cpu_din, cpu_dout,
+                latch_we, A[1:0]);
+        z80_diag_count = z80_diag_count + 1;
+    end
+    if ($test$plusargs("Z80_DIAG") && latch_we && !latch_we_d)
+        $display("[Z80LATCH] pc=%04x port=%01x data=%02x intn=%b",
+                 u_cpu.u_sysz80_nvram.u_z80wait.u_z80_devwait.u_cpu.u_cpu.PC,
+                 A[1:0], cpu_dout, int_n);
 end
 `endif
 
@@ -226,7 +260,7 @@ k054539 #(.VOLSHIFT(1)) u_k054539(
     .rom_cs     ( pcm_cs    ),
     // K054539 exposes a wider internal byte address; the GX173 sample slot
     // consumes its complete 22-bit 4 MiB range.
-    .rom_addr   ({2'b00,pcm_addr}),
+    .rom_addr   ( pcm_addr_wide ),
     .rom_data   ( pcm_dout  ),
     .rom_ok     ( pcm_ok    ),
     .rb_wait    ( k39_rb_wait ),
@@ -258,7 +292,7 @@ jt054321 u_54321(
 );
 `else
 assign  main_din = 0;
-assign  pcm_addr = 0;
+assign  pcm_addr_wide = 0;
 assign  pcm_cs   = 0;
 assign  rom_addr = 0;
 assign  st_dout  = 0;

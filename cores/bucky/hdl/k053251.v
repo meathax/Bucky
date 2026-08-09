@@ -50,6 +50,11 @@ module k053251(
     input       [3:0] ioctl_addr,
     output      [7:0] ioctl_din,
 
+    // Low-byte register readback is exposed by the MAME debug map.  Keeping
+    // the port here also makes the parent 68000 bus behave like the board
+    // instead of returning an unconditional open bus for diagnostic reads.
+    output      [7:0] reg_dout,
+
     output reg [10:0] cout,
     output reg        brit,     // bright
     output reg        col_n
@@ -74,7 +79,11 @@ reg         shd_sel, col1_n, col2_n, col3_n, col4_n;
 
 reg  p1win, l1, l2, l3, l4;
 
-assign ioctl_din = {2'd0, mmr[ioctl_addr]};
+assign ioctl_din = (ioctl_addr < 4'd13) ? {2'd0, mmr[ioctl_addr]} : 8'hff;
+
+// Registers are six bits wide.  Unused slots are open bus; do not index past
+// the physical 0..12 register file for addresses 13..15.
+assign reg_dout = (addr < 4'd13) ? {2'd0, mmr[addr]} : 8'hff;
 
 always @* begin
     op[0] = opaque(mmr[FULL][0],ci0[7:0]);

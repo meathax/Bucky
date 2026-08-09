@@ -39,6 +39,8 @@ sdram:
         - name: main
           addr_width: 22      # region maincpu de moomesa = 0x180000 BYTES (moo.cpp:878), no 0x100000:
           data_width: 16       # prog 0x000000-0x07ffff + HUECO + datos 0x100000-0x17ffff, y la region
+          cache_size: 8        # cache only requested words; the 2-line burst cache can alias an adjacent
+                               # 64-bit burst word onto a live tag during fx68k back-to-back DBRA fetches.
                                # se direcciona PLANA (verificado: en el .rom el soundcpu empieza justo
                                # en 0x180000). Con AW 20 -> puerto [19:1] -> el BIT 20 SE PIERDE y los
                                # datos (0x100000+) ALIASEAN sobre el programa (0x000000+): el 68k leia
@@ -47,7 +49,9 @@ sdram:
                                # AW 21 -> [20:1] = 1M words; ram empieza en RAM_OFFSET=0x100000 words -> no solapa.
     - buses:
         - name: snd
-          addr_width: 17
+          # Z80 program ROM: 16 banks x 0x4000 bytes, selected by the
+          # 0xf800 latch. The complete parent region is 0x40000 bytes.
+          addr_width: 18
           data_width: 8
         - name: pcm
           addr_width: 22
@@ -58,8 +62,8 @@ sdram:
     # NO 3 buses paralelos estilo xmen. Ver HANDOFF 5b / research/K056832-RTL-DESIGN.
     - buses:
         - name: scr
-          addr_width: 22      # region k056832 = 0x200000 bytes = 2MB. addr_width N -> puerto [N-1:2];
-          data_width: 32       # video usa scr_addr[20:2] (19b word) -> AW 21. Antes 19 (->[18:2]) truncaba a 512KB.
+          addr_width: 21      # region k056832 = 0x200000 bytes = 2MB; port [20:2]
+          data_width: 32
     - buses:
         - name: lyro
           addr_width: 23      # 8MB ROM sprites (2M words DW32 = 21b word addr -> puerto [22:2]). Antes 22 (->[21:2]) truncaba el MSB.

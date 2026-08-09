@@ -21,6 +21,7 @@ $checks = @(
 	@{ top='bucky_k054000'; files=@('cores/bucky/hdl/bucky_k054000.v') },
 	@{ top='bucky_k054338'; files=@('cores/bucky/hdl/bucky_k054338.v') },
 	@{ top='bucky_k056832_romrd'; files=@('cores/bucky/hdl/bucky_k056832_romrd.v') },
+	@{ top='k053251'; files=@('cores/bucky/hdl/k053251.v') },
 	@{ top='k054539'; files=@('cores/bucky/hdl/k054539.v') }
 )
 
@@ -52,16 +53,46 @@ foreach ($pattern in @(
 	'blt_isvram \? \(vdtac',
 	'blt_isvram \? vram_dout',
 	"blt_addr_r\[23:14\]==10'h060",
-	"blt_addr_r\[23:14\]==10'h06c"
+	"blt_addr_r\[23:14\]==10'h06c",
+	'assign dtac_mux = .*pal_wait',
+	'alpha_dout',
+	'pcu_dout'
 )) {
 	if ($mainText -notmatch $pattern) { throw "Parent blitter contract missing: $pattern" }
+}
+$colmixText = Get-Content -Raw (Join-Path $bucky 'hdl\bucky_colmix.v')
+if ($colmixText -notmatch 'assign pal_wait = pal_cs .*k338_cpu_priority') {
+	throw 'K054338 palette arbitration contract missing'
 }
 if (-not (Test-Path -LiteralPath $mameMap)) { throw "MAME source map missing: $mameMap" }
 $mameText = Get-Content -Raw -LiteralPath $mameMap
 foreach ($pattern in @(
+	'map\(0x000000, 0x07ffff\)\.rom',
+	'map\(0x080000, 0x08ffff\)\.ram',
+	'map\(0x090000, 0x09ffff\)\.ram\(\)\.share\(m_spriteram\)',
+	'map\(0x0a0000, 0x0affff\)\.ram',
+	'map\(0x0c0000, 0x0c003f\)\.w\(m_k056832',
+	'map\(0x0c2000, 0x0c2007\)\.w\(m_k053246',
+	'map\(0x0c4000, 0x0c4001\)\.r\(m_k053246',
 	'map\(0x180000, 0x181fff\).*k056832_device::ram_word_r',
 	'map\(0x184000, 0x187fff\)\.ram',
-	'map\(0x1b0000, 0x1b3fff\).*palette'
+	'map\(0x190000, 0x191fff\)\.r\(m_k056832',
+	'map\(0x1b0000, 0x1b3fff\).*palette',
+	'map\(0x200000, 0x23ffff\)\.rom',
+	'map\(0x0ca000, 0x0ca01f\)\.r\(m_k054338',
+	'map\(0x0cc000, 0x0cc01f\).*k053251',
+	'map\(0x0ce000, 0x0ce01f\).*moo_prot_w',
+	'map\(0x0d0000, 0x0d001f\).*k053252',
+	'map\(0x0d2000, 0x0d203f\).*k054000',
+	'map\(0x0d4000, 0x0d4001\).*sound_irq_w',
+	'map\(0x0d6000, 0x0d601f\).*k054321',
+	'map\(0x0d8000, 0x0d8007\).*b_word_w',
+	'map\(0x0da000, 0x0da001\)\.portr\("P1_P3"\)',
+	'map\(0x0da002, 0x0da003\)\.portr\("P2_P4"\)',
+	'map\(0x0dc000, 0x0dc001\)\.portr\("IN0"\)',
+	'map\(0x0dc002, 0x0dc003\)\.portr\("IN1"\)',
+	'map\(0x0de000, 0x0de001\).*control2',
+	'map\(0x180000, 0x181fff\)\.mirror\(0x002000\)'
 )) {
 	if ($mameText -notmatch $pattern) { throw "MAME parent map contract missing: $pattern" }
 }

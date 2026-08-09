@@ -191,7 +191,11 @@ reg [1:0]  h_lyr;
 reg [2:0]  h_sub;
 
 // Direcciones PRODUCTOR (combinacional desde flyr, ftile, fline estables)
-wire signed [11:0] Xbase_s = 12'sd40 + $signed(dxL(flyr)) - $signed(offx(flyr));
+wire signed [9:0]  dx_val   = dxL(flyr);
+wire signed [9:0]  offx_val = offx(flyr);
+wire signed [11:0] Xbase_s = 12'sd40 +
+                              $signed({{2{dx_val[9]}},dx_val}) -
+                              $signed({{2{offx_val[9]}},offx_val});
 wire [8:0] baseX     = Xbase_s[8:0];              // mod 512
 wire [2:0] first_sub = baseX[2:0];
 wire [5:0] first_col = baseX[8:3];
@@ -199,7 +203,9 @@ wire [5:0] curcol    = first_col + ftile[5:0];    // mod 64 implícito
 // VY0: con el vtimer re-basado a Konami, fline = vdump del display = 0x110+py, y 0x110 mod 256 = 16 ya
 // aporta el offset del visarea (golden sy=16+py). Por eso VY0=0 (antes 16, con V origen-0). Ver vtimer.
 localparam signed [11:0] VY0 = 12'sd0;
-wire signed [11:0] Y_s = $signed({3'b0,fline}) + $signed(dyL(flyr)) + VY0;
+wire signed [9:0]  dy_val = dyL(flyr);
+wire signed [11:0] Y_s = $signed({3'b0,fline}) +
+                          $signed({{2{dy_val[9]}},dy_val}) + VY0;
 wire [7:0] Ytm  = Y_s[7:0];                        // mod 256
 wire [4:0] frow = Ytm[7:3];
 wire [2:0] fty  = Ytm[2:0];

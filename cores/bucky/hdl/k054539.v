@@ -221,7 +221,8 @@ wire signed [39:0] contribR = {{6{cprodR[33]}}, cprodR};
 //   widx   = (rdelta + revpos) & 0x1fff;  (revpos sumado DOS veces: quirk exacto de MAME)
 //   bval   = min(vol + base1[4], 255);    rbvol = (voltab[bval]*32768)>>16 = voltab[bval]>>1
 //   rev_contrib = (int16)((cur_val * rbvol) >> 16)  -> se ACUMULA (int16, wrap) en rram[widx]
-wire [12:0] rrd  = {regs[b1+9'd7], regs[b1+9'd6]} >> 3;          // 16b >>3 = 13b
+wire [15:0] rdelta_word = {regs[b1+9'd7], regs[b1+9'd6]};
+wire [12:0] rrd  = rdelta_word[15:3];                            // 16b >>3 = 13b
 wire [13:0] rd14 = ({1'b0,rrd} + {1'b0,reverb_pos}) & 14'h3fff;
 wire [14:0] wsum = {1'b0,rd14} + {2'b0,reverb_pos};
 wire [12:0] widx = wsum[12:0];                                    // &0x1fff
@@ -314,13 +315,18 @@ always @(posedge clk) begin
                 rb_pending <= 1'b0;
         end else if (!rb_read_seen) begin
             rb_read_seen <= 1'b1;
-            if (!rb_pending && !rb_active)
+            if (!rb_pending && !rb_active) begin
+                // Capture the byte address at the start of the CPU
+                // transaction.  The serial pointer is incremented by the
+                // same clock edge below; deriving the request address later
+                // would therefore skip the byte being read.
                 rb_pending <= 1'b1;
+                rb_addr_l  <= {regs[9'h12e][6:0], read_ptr};
+            end
         end
         if (rb_pending && !rb_active && (state == S_IDLE)) begin
             rb_pending <= 1'b0;
             rb_active  <= 1'b1;
-            rb_addr_l  <= {regs[9'h12e][6:0],read_ptr};
         end
         if (rb_active && rom_ok) begin
             rb_data       <= rom_data;
@@ -352,9 +358,9 @@ always @(posedge clk) begin
                     if (update_at_keyon) begin
                         for (ci=0; ci<8; ci=ci+1) begin
                             if (din[ci]) begin
-                                regs[(ci*32)+9'h0c] <= pos_latch[(ci*3)+0];
-                                regs[(ci*32)+9'h0d] <= pos_latch[(ci*3)+1];
-                                regs[(ci*32)+9'h0e] <= pos_latch[(ci*3)+2];
+                                regs[(ci*32)+32'd12] <= pos_latch[(ci*3)+0];
+                                regs[(ci*32)+32'd13] <= pos_latch[(ci*3)+1];
+                                regs[(ci*32)+32'd14] <= pos_latch[(ci*3)+2];
                             end
                         end
                     end
@@ -528,7 +534,7 @@ always @(posedge clk) begin
                 accR <= accR + contribR;
                 if (w_type == 2'd2) begin
                     cpos[ch]   <= w_pos[24:1];                             // pos>>1
-                    cpfrac[ch] <= (w_pfrac >>> 1) | (w_pos[0] ? 16'h8000 : 16'h0);
+                    cpfrac[ch] <= w_pfrac[16:1] | (w_pos[0] ? 16'h8000 : 16'h0000);
                 end else begin
                     cpos[ch]   <= w_pos[23:0];
                     cpfrac[ch] <= w_pfrac[15:0];

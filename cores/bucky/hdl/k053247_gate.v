@@ -203,6 +203,7 @@ endgenerate
 //    linea activa (~hs). Es la VERDAD de que posiciones de buffer son VISIBLES — la base del cull-X.
 //    ses.35 asumio [4..387] sin medirlo y rompio la placa; aqui se mide y se imprime al cambiar min/max.
 `ifdef VERILATOR
+wire diag_en = $test$plusargs("DIAG");
 // MAPA REAL columna->hdf del readout (RTL, sin replicas del tb). Cuenta pxl_cen desde hs y publica el hdf
 // leido en cada columna, deduplicado (mismo patron cada linea). Revela el rango REAL de buf_addr mostrado.
 integer  rdcol=0;
@@ -216,7 +217,7 @@ always @(posedge clk) begin
     else if( pxl_cen ) begin
         if( rdcol<512 && !rdseen_c[rdcol] ) begin
             rdseen_c[rdcol] <= 1'b1;
-            $display("RDMAP col=%0d hdf=%0d", rdcol, hdf);
+            if (diag_en) $display("RDMAP col=%0d hdf=%0d", rdcol, hdf);
         end
         rdcol <= rdcol + 1;
     end
