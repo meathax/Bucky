@@ -36,6 +36,12 @@ obj_dir/
 *.fst
 *.vvp
 *.exe
+*.jsonl
+*_reads.txt
+*_writes.txt
+snd_latch_reads.txt
+-nvram_directory/
+nvram/
 artifacts/
 checkpoints/
 .workbench/

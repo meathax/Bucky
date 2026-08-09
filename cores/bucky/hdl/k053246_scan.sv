@@ -130,7 +130,9 @@ localparam [ 9:0] HDUMP_MIN = 10'h020,
 //    sprites visibles (x2 in [396..480] CAE dentro de [150..532] = visible; por eso rompian el jinete/jefe).
 //    Se trabaja en coord DESPLAZADA x2s=(x2-150) mod 1024 -> ventana visible = [0..382]. Cullable = footprint
 //    [x2s..x2s+Wpx-1] mod 1024 sin tocar [0..382] <=> x2s in [383+M .. 1024-Wpx-M].
-localparam        XCULL_S_EN = 1;
+// Disabled for release: the required broad scene matrix was never completed.
+// Preserve the established full traversal until equivalence is demonstrated.
+localparam        XCULL_S_EN = 0;
 localparam [ 9:0] VIS_SHIFT  = 10'd874;  // -150 mod 1024, lleva la ventana [150..532] a [0..382]
 localparam [10:0] XMARGIN    = 11'd8;    // px de guarda cada lado (overscan placa-vs-sim)
 
@@ -171,7 +173,6 @@ wire        tile_offl = MEASURE_OFFL && (hzoom==12'd64)
                       && (ts_tile >= 10'd874) && (ts_tile <= 10'd1008);
 reg  [ 8:0] zoffset [0:255];
 reg  [ 3:0] pzoffset[0:15 ];
-integer     missing;
 // ── INSTRUMENTACION DEL PRESUPUESTO POR LINEA (fork cowboys, ses.24) ─────────────────────────
 // Objetivo: saber DONDE se va el tiempo de la linea. La metrica `uncompleted lines` dice QUE no
 // termina, pero no POR QUE. Aqui separamos: cuantos objetos entran en zona (=hay que dibujarlos) y
@@ -179,6 +180,7 @@ integer     missing;
 // cuello de botella es jtframe_objdraw, no recorrer la tabla.
 // Solo simulacion: todo dentro de `ifndef SYNTHESIS` para que no toque la sintesis.
 `ifndef SYNTHESIS
+integer     missing;
 integer     dbg_inzone, dbg_stall, dbg_lines, dbg_objs, dbg_busy, dbg_starts;
 integer     tot_inzone, tot_stall, tot_lines, tot_objs, tot_busy, tot_starts;
 // ses.25: REPARTO del coste por categoria. Sin esto no se puede dimensionar el fix: si lo que se come
@@ -351,6 +353,7 @@ always @(posedge clk) begin : A
             scan_sub <= 0;
             indr     <= 0;
             vlatch   <= vdump;
+`ifndef SYNTHESIS
             if( scan_obj!=0 ) begin
                 if ($test$plusargs("DIAG"))
                     $display("[FORK-COWBOYS] Obj scan did not finish. Last obj %X",scan_obj);
@@ -359,7 +362,6 @@ always @(posedge clk) begin : A
             if(vdump==BOTTOM && missing!=0 ) begin
                 missing <= 0;
                 if ($test$plusargs("DIAG")) $display("%d uncompleted lines",missing);
-`ifndef SYNTHESIS
                 if( tot_lines>0 )
                     if ($test$plusargs("DIAG"))
                         $display("[FORK-COWBOYS] presupuesto/linea: objetos=%0d en_zona=%0d ciclos_parado_por_dr_busy=%0d (media de %0d lineas)",
@@ -375,8 +377,8 @@ always @(posedge clk) begin : A
                             (tot_skip+tot_setup+tot_draw)/tot_lines, tot_avail/tot_lines);
                 tot_objs<=0; tot_inzone<=0; tot_stall<=0; tot_lines<=0; tot_busy<=0; tot_starts<=0;
                 tot_skip<=0; tot_setup<=0; tot_draw<=0; tot_nozone<=0; tot_avail<=0;
-`endif
             end
+`endif
         end else if( !done ) begin
 `ifndef SYNTHESIS
             // reparto del coste: cada paso cen2 cae en UNA categoria

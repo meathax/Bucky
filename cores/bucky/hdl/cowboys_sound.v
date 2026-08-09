@@ -49,8 +49,8 @@ module cowboys_sound(
     // Sound output — CANALES SEPARADOS hacia el rcmix de jtframe (mem.yaml: fm + pcm).
     // Antes salia un solo `k539_l/r` con FM+PCM ya sumados dentro del k054539 (railaba el clip16).
     // Ahora cada uno va por su canal -> jtframe mezcla en precision ancha, sin comprometer headroom.
-    output     signed [15:0] fm_l,  fm_r,   // YM2151 (jt51), trim vivo debug_bus[3:0]
-    output     signed [15:0] pcm_l, pcm_r,  // K054539 PCM puro, trim vivo debug_bus[7:4] (en el modulo)
+    output     signed [15:0] fm_l,  fm_r,   // YM2151 (jt51)
+    output     signed [15:0] pcm_l, pcm_r,  // K054539 PCM
     // Debug
     input    [ 7:0] debug_bus,
     output   [ 7:0] st_dout
@@ -79,19 +79,10 @@ wire  signed [15:0] fmx_l, fmx_r;   // salida cruda del jt51 (antes de trim)
 wire [23:0] pcm_addr_wide;
 assign pcm_addr = pcm_addr_wide[21:0];
 
-// trim de FM en vivo: (FM*fg)>>3, con clamp. fg de debug_bus[3:0], default 8 = UNIDAD.
-// El balance base FM/PCM lo fija el rcmix (mem.yaml); esto es solo el ajuste fino en vivo.
-wire [4:0] fm_g = (debug_bus[3:0]==4'd0) ? 5'd8 : {1'b0, debug_bus[3:0]};
-function signed [15:0] fmtrim(input signed [15:0] s, input [4:0] g);
-    reg signed [23:0] p;
-    begin
-        p = (s*$signed({1'b0,g})) >>> 3;
-        fmtrim = (p >  24'sd32767) ? 16'sd32767 :
-                 (p < -24'sd32768) ? -16'sd32768 : p[15:0];
-    end
-endfunction
-assign fm_l = fmtrim(fmx_l, fm_g);
-assign fm_r = fmtrim(fmx_r, fm_g);
+// Channel balance belongs to JTFRAME's fixed rcmix metadata. The former
+// debug-bus gain inserted two variable multipliers in the release datapath.
+assign fm_l = fmx_l;
+assign fm_r = fmx_r;
 
 assign int_n    = latch_intn;
 assign nmi_trig = fm_intn;
@@ -268,7 +259,7 @@ k054539 #(.VOLSHIFT(1)) u_k054539(
     .left       ( pcm_l     ),
     .right      ( pcm_r     ),
     // debug
-    .debug_bus  ( debug_bus ),
+    .debug_bus  ( 8'd0      ),
     .st_dout    ( st_dout   )
 );
 

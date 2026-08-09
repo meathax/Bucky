@@ -35,31 +35,18 @@ wire [ 7:0] ccu_dout;
 wire [ 8:0] video_vdump;
 wire [13:1] oram_addr;
 wire [15:0] obj_cpu_addr;
-reg  [ 7:0] debug_mux;
-// reg  [ 2:0] game_id;
-// reg         cowboys;
 wire [ 7:0] snd2main,
             obj_dout, snd_latch, pair_dout,
             st_main, st_video, st_snd;
 wire [ 1:0] oram_we;
 
-assign debug_view = debug_mux;
+// Release builds expose no diagnostic overlay or runtime tuning controls.
+assign debug_view = 8'd0;
 assign ram_we     = cpu_we & ram_cs;
 wire [1:0] ram_bank = (main_addr[20:14] == 7'h61) ? 2'd2 :
                       main_addr[17]                ? 2'd1 : 2'd0;
 assign ram_addr   = {ram_bank,main_addr[15:1]};
 assign video_dumpa= ioctl_addr[15:0]-16'h80; // subtract NVRAM offset
-
-always @(posedge clk) begin
-    debug_mux <= st_snd;
-    // case( debug_bus[7:6] )
-    //     0: debug_mux <= st_main;
-    //     1: debug_mux <= st_video;
-    //     2: debug_mux <= st_snd;
-    //     3: debug_mux <= { mute, /*cowboys,*/ 7'b0 };
-    //     default: debug_mux <= 0;
-    // endcase
-end
 
 `ifdef SIMULATION
 // ⭐ SESION 19: SONDA DE LATENCIA SDRAM DEL BUS `scr` (tile ROM) con el controlador SDRAM REAL de jtframe.
@@ -171,7 +158,7 @@ bucky_main u_main(
     .dipsw          ( dipsw         ),
     // Debug
     .st_dout        ( st_main       ),
-    .debug_bus      ( debug_bus     )
+    .debug_bus      ( 8'd0          )
 );
 
 bucky_k053252 u_ccu(
@@ -262,7 +249,7 @@ bucky_video u_video (
     .green          ( green         ),
     .blue           ( blue          ),
     // Debug
-    .debug_bus      ( debug_bus     ),
+    .debug_bus      ( 8'd0          ),
     .ioctl_addr     ( video_dumpa   ),
     .ioctl_din      ( ioctl_din     ),
     .ioctl_ram      ( ioctl_ram     ),
@@ -303,7 +290,7 @@ cowboys_sound u_sound(
     .pcm_l      ( pcm_l         ),
     .pcm_r      ( pcm_r         ),
     // Debug
-    .debug_bus  ( debug_bus     ),
+    .debug_bus  ( 8'd0          ),
     .st_dout    ( st_snd        )
 );
 

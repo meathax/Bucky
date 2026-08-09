@@ -15,7 +15,7 @@
       - Mezcla fixed-point Q16 con tablas voltab/pantab ($readmemh) + pan L/R (incl. rango 0x8x),
         key on/off. Salida = PCM PURO (canal propio hacia el rcmix de jtframe). La FM (jt51) es un
         CANAL SEPARADO (mem.yaml: fm + pcm) -> jtframe mezcla en precision ancha, sin comprometer
-        headroom. Trim de PCM en vivo por debug_bus[7:4] (default unidad) para calibrar el balance.
+        headroom. Fixed channel balance is applied by JTFRAME's rcmix.
     Implemented in this revision:
       - reverb RAM 0x8000 bytes (two 16-bit BRAM banks)
       - forward and reverse playback stepping (base2 bit 5)
@@ -261,10 +261,6 @@ function signed [15:0] clip16(input signed [23:0] v);
     clip16 = (v >  24'sd32767) ? 16'sd32767 :
              (v < -24'sd32768) ? -16'sd32768 : v[15:0];
 endfunction
-// trim de PCM en vivo: (PCM*pg) >> 3, con clamp. pg de debug_bus[7:4] (ver abajo).
-function signed [15:0] trimg(input signed [15:0] pcm16, input [4:0] pg);
-    trimg = clip16( (pcm16*$signed({1'b0,pg})) >>> 3 );
-endfunction
 function [3:0] pan_idx(input [7:0] p);
     if      (p >= 8'h81 && p <= 8'h8f) pan_idx = p[3:0] - 4'd1;
     else if (p >= 8'h11 && p <= 8'h1f) pan_idx = p[3:0] - 4'd1;
@@ -275,11 +271,6 @@ endfunction
 wire [3:0] dnib = w_pos[0] ? rom_data[7:4] : rom_data[3:0];
 wire signed [15:0] ds = dpcm_step(dnib);
 
-// --- Trim de PCM AJUSTABLE EN VIVO por debug_bus (calibrar el balance sin recompilar) ---
-//   debug_bus[7:4] = trim PCM (/8; 0 -> default 8 = UNIDAD). El balance base FM/PCM lo fija el
-//   rcmix de jtframe (mem.yaml: canales fm + pcm); este trim es solo para el ajuste fino en vivo.
-//   (La FM se trimea en su propio canal, en cowboys_sound.v con debug_bus[3:0].)
-wire [4:0] pcm_g = (debug_bus[7:4]==4'd0) ? 5'd8 : {1'b0, debug_bus[7:4]};
 // avance de posicion (unidades de w_pos)
 wire [24:0] npos1 = w_reverse ? w_pos - 25'd1 : w_pos + 25'd1;
 wire [24:0] npos2 = w_reverse ? w_pos - 25'd2 : w_pos + 25'd2;
@@ -567,8 +558,8 @@ always @(posedge clk) begin
             end
 
             S_DONE: begin  // Q16 -> entero (>>16), clamp del PCM (como MAME), y trim de PCM en vivo
-                left  <= trimg( clip16($signed(accL[39:16])), pcm_g );
-                right <= trimg( clip16($signed(accR[39:16])), pcm_g );
+                left  <= clip16($signed(accL[39:16]));
+                right <= clip16($signed(accR[39:16]));
                 if (regs[9'h12f][0]) reverb_pos <= reverb_pos + 13'd1;  // congela si chip OFF (ref: early return)
                 state <= S_IDLE;
             end

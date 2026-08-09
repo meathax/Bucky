@@ -205,7 +205,7 @@ always @(posedge clk, posedge rst) begin
         end
 `endif
     end else begin
-        if( cs ) mmr[addr] <= din;
+        if( cs && addr < 4'd13 ) mmr[addr] <= din;
     end
 end
 

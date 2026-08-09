@@ -43,30 +43,7 @@ module k053247_draw#( parameter
     ZI       =  ZW-1,
     ZENLARGE =  0,
     SWAPH    =  0,
-    KEEP_OLD =  0,
-    // ── CULL fuera de pantalla-X (ses.33, SCAFFOLDING, OFF por defecto): el scan solo culla en Y
-    //    (inzone); los tiles cuyo tramo de 16 px cae fuera de la ventana visible se fetchean en balde
-    //    (ses.26: 29-39%). Saltar el FETCH libera bus (~20% menos lecturas medido: 16.62%->12.94% en 11971).
-    //    ⛔ PENDIENTE: la ventana visible en coords del line buffer NO se pudo fijar en ses.33 — culling
-    //    por `xpos` a fetch-time rompe sprites visibles (1800 0%->24%): `xpos` (hpos, +16/tile) DIVERGE de
-    //    `buf_addr` real (posición de escritura) con ZOOM, y hay un offset extra sin identificar (hdfix
-    //    medido=[4..387] pero visibles hasta xpos~498). Requiere una sonda sobre `buf_addr` REAL (no xpos)
-    //    para calibrar, o cullar en el SCAN con la x de pantalla antes del transform. El ORÁCULO FIEL
-    //    (1800=0% + gate de movimiento) cazó cada ventana mala al instante = la red de seguridad que ses.26
-    //    no tuvo. Dejar XCULL_EN=0 hasta calibrar bien.
-    // ⛔ ses.35 VEREDICTO: CULLAR EN EL DIBUJANTE ES INVIABLE. Calibré la banda con el oráculo (sonda
-    //    dv_vis): invisibles del borde derecho desde xpos 389, y los 1013..1023 SÍ visibles (wrap izquierda
-    //    del buffer de 1024). PERO al activar el cull, 1800 rompía (0%->26/27%) en TODAS las variantes:
-    //    (1) saltar el dibujo, (2) avanzar buf_addr para no romper la cadena hz_keep, (3) dibujar pero
-    //    saltar SOLO el fetch. Las tres rompen => el break NO es la cadena ni el dato: es que saltar el
-    //    FETCH cambia el TIMING (`busy` baja antes) y DESINCRONIZA el pipeline del SCAN (calcula `inzone`
-    //    con 2 clk de retraso; a ritmo variable produce inzone/posición basura para el tile SIGUIENTE).
-    //    Y en 11971 ninguna variante batía al 64-bit solo (7.23%). => El cull DEBE ir en el SCAN (descartar
-    //    el sprite ENTERO por su X de pantalla ANTES del pipeline; solo sprites 100% fuera, sin cadena
-    //    parcial), no aquí. Andamiaje y sonda dv_vis conservados para ese trabajo futuro. Dejar XCULL_EN=0.
-    XCULL_EN =  0,
-    XCULL_LO = 10'd389,
-    XCULL_HI = 10'd1008
+    KEEP_OLD =  0
 )(
     input               rst,
     input               clk,
@@ -118,20 +95,15 @@ reg [AW-1:0] fc_xpos;
 reg [ZW-1:0] fc_hzoom;
 reg [PW-5:0] fc_pal;
 reg          fc_hflip, fc_vflip, fc_hzkeep, fc_nozoom;
-reg          fc_cull;
 
 wire [3:0] fc_ysubf = fc_ysub ^ {4{fc_vflip}};
 wire       fc_nz    = hzoom==HZONE || hzoom==0;
-
-// tile fuera de pantalla (solo NO-zoom, donde xpos==buf_addr exacto): banda off-screen [XCULL_LO..XCULL_HI]
-wire       tile_cull = XCULL_EN && fc_nz && (xpos>=XCULL_LO) && (xpos<=XCULL_HI);
 
 assign busy = f_st!=F_IDLE;   // al scan: FETCH ocupado (draw puede seguir pintando el tile anterior)
 
 // ── ETAPA DRAW: dibuja desde pre_data (sin esperar ROM) ────────────────────────────────────────
 reg  [63:0] d_data;
 reg [AW-1:0] d_xpos;
-localparam [AW-1:0] DIAG_XPOS = 300;
 reg [ZW-1:0] d_hzoom;
 reg [PW-5:0] d_pal;
 reg          d_hflip, d_hzkeep, d_nozoom;
@@ -146,13 +118,6 @@ reg          moveon, readon;
 wire [ZW-1:ZI] hzint = hz_cnt[ZW-1:ZI];
 wire         four_px = d_nozoom;    // no_zoom -> 4 px/clk (ses.30); con zoom cae a 1 px/clk
 wire [3:0]   pxl, pxl_hi, pxl_c, pxl_d;
-
-// ── DIAG CULL-X (ses.35): ¿este tile escribe ALGÚN píxel en la ventana visible [4..387]? Registra
-//    (xpos, hzoom, vis) al terminar el tile, para calibrar la banda de cull sin adivinar (verdad del oráculo).
-`ifdef VERILATOR
-localparam [9:0] VIS_LO=10'd4, VIS_HI=10'd387;
-reg  dv_vis;
-`endif
 
 // pixel i del tile = bits [i, 8+i, 16+i, 24+i] de pxl_data (4 planos intercalados). hflip -> desde arriba.
 assign pxl    = d_hflip ? {pxl_data[31],pxl_data[23],pxl_data[15],pxl_data[ 7]}
@@ -175,14 +140,6 @@ assign buf_addr2 = buf_addr + 10'd1;
 assign buf_addr3 = buf_addr + 10'd2;
 assign buf_addr4 = buf_addr + 10'd3;
 
-`ifdef VERILATOR
-// ¿alguno de los 4 puertos escribe AHORA en la ventana visible [4..387]? (wrap mod 512 automático)
-wire w_visnow = (buf_we  & (buf_addr >=VIS_LO & buf_addr <=VIS_HI))
-              | (buf_we2 & (buf_addr2>=VIS_LO & buf_addr2<=VIS_HI))
-              | (buf_we3 & (buf_addr3>=VIS_LO & buf_addr3<=VIS_HI))
-              | (buf_we4 & (buf_addr4>=VIS_LO & buf_addr4<=VIS_HI));
-`endif
-
 always @* begin
     if( ZENLARGE==1 ) begin
         readon = hzint >= 1;
@@ -200,7 +157,7 @@ wire handoff = f_st==F_HOLD && !d_busy;
 
 always @(posedge clk) begin
     if( rst ) begin
-        f_st<=F_IDLE; rom_cs<=0; f_lsb<=0; pre_data<=0; fc_cull<=0;
+        f_st<=F_IDLE; rom_cs<=0; f_lsb<=0; pre_data<=0;
         d_go<=0; d_busy<=0; cnt<=0; buf_addr<=0; pxl_data<=0; hz_cnt<=0;
         dw_sel<=0; second<=0;
     end else begin
@@ -211,14 +168,8 @@ always @(posedge clk) begin
                 fc_code<=code; fc_ysub<=ysub; fc_vflip<=vflip; fc_hflip<=hflip;
                 fc_xpos<=xpos; fc_hzoom<=hzoom; fc_hzkeep<=hz_keep; fc_pal<=pal; fc_nozoom<=fc_nz;
                 f_lsb  <= hflip;
-                fc_cull<= tile_cull;
-                if( tile_cull ) begin
-                    rom_cs <= 0;       // CULL: saltar el fetch (no toca el bus) y no dibujar
-                    f_st   <= F_HOLD;
-                end else begin
-                    rom_cs <= 1;
-                    f_st   <= F_RD0;
-                end
+                rom_cs <= 1;
+                f_st   <= F_RD0;
             end
             F_RD0: if( rom_ok ) begin
                 pre_data[31:0] <= rom_data;
@@ -240,7 +191,7 @@ always @(posedge clk) begin
             d_data   <= pre_data;
             d_xpos   <= fc_xpos; d_hzoom<=fc_hzoom; d_pal<=fc_pal;
             d_hflip  <= fc_hflip; d_hzkeep<=fc_hzkeep; d_nozoom<=fc_nozoom;
-            d_go     <= ~fc_cull;   // el tile cullado NO se dibuja (nada visible)
+            d_go     <= 1'b1;
         end
 
         // ── DRAW FSM ──
@@ -248,14 +199,8 @@ always @(posedge clk) begin
             if( d_go ) begin
                 d_busy <= 1; cnt <= 8; dw_sel <= 0; second <= 0;
                 if( !d_hzkeep ) begin hz_cnt <= HZONE>>1; buf_addr <= d_xpos; end
-`ifdef VERILATOR
-                dv_vis <= 1'b0;
-`endif
             end
         end else begin
-`ifdef VERILATOR
-            if( w_visnow ) dv_vis <= 1'b1;
-`endif
             if( cnt[3] ) begin                 // recarga la ventana de 8 px (sin espera de ROM)
                 pxl_data <= dw_sel ? d_data[63:32] : d_data[31:0];
                 cnt[3]   <= 0;
@@ -273,12 +218,6 @@ always @(posedge clk) begin
                 if( readon && second &&
                     ( four_px ? cnt[2:0]==4 : cnt[2:0]==7 ) ) begin
                     d_busy <= 0; // 16 px dibujados
-`ifdef VERILATOR
-                    // volcado de calibración: solo tiles del borde (candidatos a cull); vis=1 => NO cullar
-                    if( d_xpos>=DIAG_XPOS )
-                        $display("XCULLDIAG xpos=%0d hz=%0d nz=%0d vis=%0d",
-                                 d_xpos, d_hzoom, d_nozoom, dv_vis|w_visnow);
-`endif
                 end
             end
         end

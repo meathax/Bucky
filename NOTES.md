@@ -212,3 +212,20 @@ K054000/K054338 tests. Real-game accuracy claims begin only after deterministic 
 - A strict fx68k Verilator rebuild succeeds after this RTL fix. The required
   gameplay-length regression is still pending because this full visible-SDL
   bench advances at roughly 0.5 frames/second; no hardware/RBF claim is made.
+
+## Pre-RBF RTL cleanup - 2026-08-10
+
+- Removed the JTFRAME test/debug OSD controls and tied all production debug
+  buses away from functional paths. The release no longer permits debug-bus
+  audio gain changes or exposes the diagnostic status overlay.
+- Removed the rejected K053247 draw-stage X-culling scaffold. Disabled the
+  scan-stage X-culling experiment because its own required broad scene matrix
+  was never completed; release RTL keeps the established full sprite traversal.
+- Removed the unity-default FM/PCM debug gain stages. This eliminates four
+  variable audio multipliers while leaving the normal gain-8 divided-by-8
+  output numerically identical. JTFRAME rcmix remains the fixed balance owner.
+- Guarded K053251 writes to its physical 0-12 register range, and removed
+  generated trace, config and NVRAM artifacts from the tracked source set.
+- Parent-only source/MRA/JTFRAME/Yosys pre-hardware audit passes. No Verilator,
+  Quartus, RBF generation or hardware test was run during this cleanup. The
+  gameplay-length sprite-source regression remains the functional release gate.

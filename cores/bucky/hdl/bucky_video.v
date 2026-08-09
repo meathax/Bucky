@@ -7,13 +7,9 @@
     (fuente de timing del core) + VRAM interna paginada + 1 bus ROM SERIAL (scr) que multiplexa las 4
     capas. Sustituye a jtaliens_scroll (que era el K052109 de X-Men, chip distinto).
 
-    PENDIENTE (validacion por escenas / Fase siguiente):
-      - Empaquetado EXACTO de pixel hacia el K053251 en colmix (ci = f(colnib,pen)) — juez: sim==golden.
-      - Integracion de alpha/sombra K054338 en escenas completas (el datapath independiente ya existe).
-      - Carga por escena: la VRAM/regs del modulo son internos; para restore-ioctl habra que exponerlos
-        como BRAM jtframe (como rungun) o cargar por el bus CPU en el testbench de escena.
-      - Timing HW: el vtimer usa HTOTAL=512 y VTOTAL=264 (objetivo K053252 ~=59.19 Hz); confirmar en MiSTer.
-      - Lectura CPU 16-bit (tilesys_dout) y separacion vram_cs(0x180000)/reg_cs(0x0c0000) en main (Fase 1).
+    Release boundary: K053251/K054338 scene accuracy, native timing and the
+    sprite-source correction still require their documented regression and
+    hardware gates; they are not represented as selectable experimental RTL.
 */
 module bucky_video(
     input             rst,
@@ -211,7 +207,7 @@ cowboys_k056832 u_scroll(
     .lyrc_mix   ( lyrc_mix  ),
 
     .gfx_en     ( gfx_en    ),
-    .debug_bus  ( debug_bus )
+    .debug_bus  ( 8'd0      )
 );
 
 assign tile_irqn = 1'b1;   // Bucky map has no K056832 IRQ window; IRQ4 comes from object DMA.
@@ -253,7 +249,7 @@ wire [7:0] obj_dbg;
 `ifdef SIMULATION
 assign obj_dbg = 8'd5;
 `else
-assign obj_dbg = debug_bus;
+assign obj_dbg = 8'd0;
 `endif
 
 `ifdef SIMULATION
@@ -447,7 +443,7 @@ bucky_colmix u_colmix(
     .ioctl_din  ( ioctl_din ),
     .dump_mmr   (           ),
 
-    .debug_bus  ( debug_bus )
+    .debug_bus  ( 8'd0      )
 );
 
 endmodule

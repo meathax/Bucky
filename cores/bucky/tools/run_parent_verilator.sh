@@ -79,7 +79,7 @@ defs=(
     # cache must see the four 16-bit return beats; omitting BA0/1/2 leaves
     # the cache half-filled and corrupts the very first 68000 reset vector.
     -DJTFRAME_BA0_LEN=64 -DJTFRAME_BA1_LEN=64 -DJTFRAME_BA2_LEN=64
-    -DJTFRAME_BA3_LEN=64 -DJTFRAME_IOCTL_RD=128 -DJTFRAME_DEBUG_VPOS=5
+    -DJTFRAME_BA3_LEN=64 -DJTFRAME_IOCTL_RD=128
     -DJTFRAME_TIMESTAMP=0 -DJTFRAME_LF_HW=1 -DJTFRAME_LF_VW=1
     -DJTFRAME_MR_FASTIO=0 -DSND_RAMW=13
 )
