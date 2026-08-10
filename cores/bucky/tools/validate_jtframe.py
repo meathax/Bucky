@@ -25,7 +25,28 @@ REQUIRED_QIP = (
     "k053246_scan.sv",
     "jtbucky_game.v",
 )
-FORBIDDEN_QIP = ("jtsimson_obj.v", "jtmoomesa_game.v", "jtbuckyaa_game.v")
+FORBIDDEN_QIP = (
+    "jtsimson_obj.v",
+    "jtmoomesa_game.v",
+    "jtbuckyaa_game.v",
+    # Disconnected Bucky experiments must not enter the production source
+    # closure. Their modules are retained for historical reference only.
+    "k053246_draw.v",
+    "k053246_objdraw.v",
+    "k053246_skid.v",
+    "jt053246_dma.v",
+    "jt053246_mmr.v",
+    "jtcolmix_053251.v",
+    "jtaliens_scroll.v",
+    "jt052109.v",
+    "jt051962.v",
+    "jt051960.v",
+    "jtriders_dump.v",
+    "jtriders_sound.v",
+    "jt053260.v",
+    "jt053260_channel.v",
+    "jt053260_timer.v",
+)
 
 
 def require(needle: str, haystack: str, label: str) -> None:
@@ -39,9 +60,15 @@ def main() -> int:
         return 2
 
     core = Path(sys.argv[1]).resolve()
-    wrapper = core / "mister" / "jtbucky_game_sdram.v"
-    ports = core / "mister" / "mem_ports.inc"
-    qip = core / "files.qip"
+    # jtcore's normal build directory is cores/<core>/<target>. Older
+    # staging helpers placed files.qip at the core root, so accept both
+    # locations while always validating the same generated target set.
+    generated = core / "mister"
+    if not (generated / "files.qip").is_file():
+        generated = core
+    wrapper = generated / "jtbucky_game_sdram.v"
+    ports = generated / "mem_ports.inc"
+    qip = generated / "files.qip"
     for path in (wrapper, ports, qip):
         if not path.is_file():
             raise ValueError(f"generated JTFRAME artifact is missing: {path}")

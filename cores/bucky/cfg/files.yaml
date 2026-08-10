@@ -1,23 +1,60 @@
 bucky:
   - get:
-    - "*.v"
-    # ⛔ ses.25: sin este "*.sv" el FORK del motor de sprites (k053246.sv, k053246_scan.sv) NO llega
-    # a SINTESIS. Se detecto porque el files.qip generado listaba `jtsimson_obj.v` de simson y ni un
-    # solo fichero del fork => el .rbf construido a las 09:15 del 2026-07-20 lleva el motor de
-    # sprites VIEJO, no el fork. Misma familia que el bug de harness de la ses.19 (§H23), pero en el
-    # camino de sintesis: el sim probaba una cosa y Quartus construia otra.
-    - "*.sv"
+    # Keep the synthesis closure explicit. The old *.v/*.sv globs also
+    # compiled the disconnected k053246_* experimental draw/skid fork. It
+    # was not placed logic, but it made the generated QIP look like a second
+    # sprite implementation and made stale-source mistakes harder to catch.
+    - bucky_colmix.v
+    - bucky_k053252.v
+    - bucky_k054000.v
+    - bucky_k054338.v
+    - bucky_k056832_romrd.v
+    - bucky_main.v
+    - bucky_video.v
+    - cowboys_k056832.v
+    - cowboys_lyro64.v
+    - cowboys_obj.v
+    - cowboys_sound.v
+    - jtbucky_game.v
+    - k053246_dma.v
+    - k053246_mmr.v
+    - k053247.v
+    - k053247_buffer.v
+    - k053247_draw.v
+    - k053247_gate.v
+    - k053251.v
+    - k054539.v
+    # These two SystemVerilog files are the production K053246 scan path.
+    # Keep them explicit so a *.v-only sync can never silently select the
+    # inherited sprite scanner.
+    - k053246.sv
+    - k053246_scan.sv
 riders:
   - get:
-    - common.yaml
+    # Bucky only uses the shared PCM board, not the Riders debug/sound
+    # wrappers. Do not include riders/cfg/common.yaml here: that aggregate
+    # also imports Simson and Aliens devices that are not in this core.
+    - jt054321.v
+jt51:
+  - get:
+    - files.yaml
+jteeprom:
+  - get:
+    - jt5911.sv
 # ⛔ NO se listan ya los modulos de sprites de simson (jt053246.sv, jt053246_scan.sv, jtsimson_obj.v):
 # cowboys tiene su propio FORK renombrado (k053246*, cowboys_obj.v) desde la ses.24. Listarlos solo
 # metia codigo muerto en el proyecto. Ver la cabecera de k053246_scan.sv.
 jtframe:
+  - from: video
+    get:
+      - jtframe_vtimer.v
+  - from: ram
+    get:
+      - jtframe_dual_nvram16.v
   - from: video/layouts
     get:
       - jtframe_8x8x4_packed_msb.v
-# El modulo PCM es PROPIO: cores/bucky/hdl/k054539.v (recogido por 'bucky: *.v'), escrito de cero
+# El modulo PCM es PROPIO: cores/bucky/hdl/k054539.v (recogido por la lista explicita de 'bucky'), escrito de cero
 # contra el golden de MAME (k054539.cpp) + la RE de Furrtek. NO se usa el 'jt539:' privado de Jotego
 # (sponsor-gated, no clonable). Incluye los tres formatos PCM, mezcla, reverb, reverse,
 # UPDATE_AT_KEYON y readback de registros/puerto de reverb.

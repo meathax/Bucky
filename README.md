@@ -1,192 +1,134 @@
-# konami-fpga
+# Bucky O'Hare — MiSTer FPGA Core
 
-🇬🇧 English (below) · [🇪🇸 Español](#español)
+An independent MiSTer FPGA recreation of Konami's **Bucky O'Hare** arcade hardware.
 
-FPGA recreations of **Konami** arcade boards, built on the **JTFRAME** framework (GPLv3). MiSTer target.
+## Core title and board
 
-> ℹ️ Independent project — **NOT** an official jotego core. Built on his GPLv3 JTFRAME framework.
+- **Core title:** Bucky O'Hare
+- **Arcade hardware:** Konami **GX173 / PWB353126** PCB
+- **Game:** Bucky O'Hare, Konami, 1992
+- **Display:** horizontal, 384×224 active pixels, 4:3 aspect ratio, 15 kHz-class arcade timing
+- **Players:** up to four
+- **Framework:** JTFRAME / jtcores
 
-## Cores
+This is a work-in-progress accuracy core. Focused device tests, ROM/MRA validation and parent boot
+tests are in place. Full gameplay-length regression and real MiSTer hardware deployment remain open
+validation gates.
 
-### Asterix (Konami, 1993)
-Run-and-gun beat-'em-up (GX068 board, Xexex-family lineage). Hardware: **MC68000** main CPU + **Z80**
-sound CPU + **YM2151** (FM) + **K053260** (PCM sound) + Konami video customs — **K056832** (tilemap),
-**K053244/K053245** (sprites, with shadow blending), **K053251** (priority mixer) — plus the board's
-**palette blitter** (a bus-master ROM→palette copier, recreated as HLE; it is a **sound boot-gate**: the
-68000 will not proceed past POST until the Z80+K053260 handshake completes).
+## Features in the OSD
 
-**Status: playable on MiSTer** — boot, video (tilemap + sprites + shadows), the palette blitter, and
-**audio (YM2151 FM + K053260 PCM, all 4 channels including the coin sound)** all run on hardware.
+The Bucky O'Hare MRA exposes the following board configuration and control options:
 
-Unlike `moomesa`'s K054539, the **K053260** PCM chip already exists as a validated module in the common
-jtframe tree (`jt053260`), so this core reuses it instead of writing a new one from scratch; the
-core-specific work is the 68000 memory map, the palette blitter, and adapting the K056832/K053244/K053245
-video pipeline (tile-bank, rowscroll, sprite priority/shadow rules) to this board's exact wiring.
+| OSD feature | Options / function |
+|---|---|
+| Sound Output | Stereo or Mono |
+| Coin Mechanism | Independent or Common |
+| Number of Players | 2, 3 or 4 |
+| CRT Adjust | Enable or disable CRT geometry adjustment |
+| H-Position | Horizontal sync/content position adjustment |
+| V-Shift | Vertical image shift |
+| H-Size | Horizontal image size |
+| Controls | Four 8-way joysticks with Shoot, Jump and Special buttons |
+| NVRAM | Save and restore the emulated 128-byte EEPROM through MiSTer settings |
 
-A prebuilt `.rbf` is in [`releases/`](releases/) — **distributable**: all game ROMs are loaded at
-**runtime** from the `.mra`; the bitstream bakes no game data. Or build from source (`cores/asterix/`).
-See [`BUILD.md`](BUILD.md).
+## PCB Accuracy
 
-### Wild West C.O.W.-Boys of Moo Mesa (Konami, 1992)
-Run-and-gun beat-'em-up (the cartoon cowboys). Hardware (GX151 / Xexex-family board): **MC68000** main
-CPU + **Z80** sound CPU + **YM2151** (FM) + **K054539** (PCM sound) + Konami video customs — **K056832**
-(tilemap), **K053246/K053247** (sprites), **K054338** (color / alpha blend), **K053251** (priority) —
-plus the board's **protection blitter** (recreated as HLE).
+The table below lists the parts of the GX173 implementation that follow the PCB documentation,
+silicon reconstruction, MAME's documented device contract, or focused component tests. “Implemented”
+does not mean that the complete game has already passed a hardware comparison.
 
-**Status: playable on MiSTer** — boot, video (tilemap + sprites + alpha), the protection blitter, and
-**audio (YM2151 FM + K054539 PCM)** all run on hardware.
+| Area | PCB-aligned implementation | Evidence / status |
+|---|---|---|
+| Board map and ROM layout | GX173 address map, RAM windows, custom-chip windows, palette, data ROM and EEPROM | Implemented; six MAME 0.289 MRAs generated and checked |
+| Main CPU | MC68000-compatible CPU path with GX173 bus decoding, wait states, IRQ4 and IRQ5 | Implemented; parent POST and directed gameplay milestones reached; long regression pending |
+| Sound subsystem | Z80 sound CPU, banked sound ROM, main/sound latch and YM2151 interface | Implemented and exercised by parent boot tests |
+| K054539 PCM | 8-bit PCM, 16-bit PCM, 4-bit DPCM, pan/volume, key-on/off, reverb, reverse playback and register readback | Focused component test passes; game-level audio regression remains pending |
+| K056832 tile video | Tilemap VRAM, scrolling, tile ROM readback and GX173 timing geometry | Focused ROM-readback/component tests pass |
+| K053246 / K053247 sprites | Sprite DMA, source RAM, scanning, zoom, shadow attributes and line-buffered drawing | PCB sprite-source behavior corrected; gameplay-length scene regression remains pending |
+| K053251 priority | Layer and sprite priority selection with shadow-priority behavior | Implemented from the GX173 video path and silicon evidence; full-scene closure pending |
+| K054338 color math | Mix selection, interpolation/addition, shadow/highlight paths, clamp control and brightness output | Derived from the reconstructed schematic; focused component test passes |
+| K054000 device | Register/status behavior and GX173 byte-lane integration | Independent implementation; published 20-step register/status probe passes |
+| Protection blitter | GX173 boot-time ROM/RAM blitter contract, including bus-master stalling | Implemented as a synthesizable HLE of the documented behavior; not a gate-level recreation |
+| Timing and I/O | 8 MHz pixel timing, 384×224 raster, four-player inputs, DIP switches and active-low cabinet signals | Implemented from board/MAME evidence; hardware gate remains outstanding |
 
-Two notable parts are **written from scratch**: the **`k054539`** PCM chip (there is no `jt539` in
-jtframe — it is a private module) and the **`k056832`** tilemap. The K054539 is validated **bit-exact**
-against a MAME-derived C++ model.
+## Full list of games supported by the hardware
 
-A prebuilt `.rbf` is in [`releases/`](releases/) — **distributable**: all game ROMs are loaded at
-**runtime** from the `.mra`; the bitstream bakes only the K054539's **generated** Q16 volume/pan tables
-(`voltab.hex` / `pantab.hex`, math, not game data) and a zero-init table — **no copyrighted data**.
-Or build from source (`cores/moomesa/`). See [`BUILD.md`](BUILD.md).
+The core currently supports all six Bucky O'Hare revisions selected by the `bucky` MAME machine
+configuration:
 
-> ℹ️ Naming: the PCM chip keeps its real silicon name (`k054539`, no `jt`); the GAMETOP is
-> `jtmoomesa_game` (memgen imposes the `jt`).
+| Game / revision | MAME set name |
+|---|---|
+| Bucky O'Hare (ver EAB) | `bucky` |
+| Bucky O'Hare (ver EA) | `buckyea` |
+| Bucky O'Hare (ver JAA) | `buckyjaa` |
+| Bucky O'Hare (ver UAB) | `buckyuab` |
+| Bucky O'Hare (ver AAB) | `buckyaab` |
+| Bucky O'Hare (ver AA) | `buckyaa` |
 
-## Build
+These are regional or revision variants of the same game, not separate games.
 
-This repo contains **only the core code** (`cores/<core>/`, e.g. `cores/asterix/`, `cores/moomesa/`).
-The framework and third-party cores (jtframe, jt51) are **not included** — jtframe provides them. Quick
-version:
+## **Hardware emulated**
 
-1. Clone [jtcores](https://github.com/jotego/jtcores) (brings jtframe + modules).
-2. Copy this repo's `cores/<core>/` into your jtcores checkout.
-3. Build: `jtcore <core> -mister -c` (e.g. `jtcore asterix -mister -c`).
-
-📋 **Step-by-step in [`BUILD.md`](BUILD.md).**
-
-Core layout (same for every core in this repo):
-```
-cores/<core>/
-├── hdl/   Core Verilog
-├── cfg/   macros.def, mem.yaml, files.yaml, mame2mra.toml
-└── mra/   .mra definition (how to assemble the ROMs)
-```
-
-## ROMs
-
-**Not included** (copyrighted material). Everyone provides the original ROMs of their own board for each
-game. The `.mra` describes how to assemble them; every ROM (program, sound, PCM samples, tiles,
-sprites) is loaded at runtime, so the `.rbf` carries no copyrighted data.
+| Hardware | Role |
+|---|---|
+| MC68000 | Main game CPU |
+| Z80 | Sound CPU |
+| YM2151 | FM sound generation |
+| Konami K054539 | PCM sample playback and effects |
+| Konami K054321-style sound interface | Main CPU ↔ sound CPU communication and sound control |
+| Konami K056832 | Tilemap generation, scrolling and tile ROM access |
+| Konami K053246 / K053247 | Sprite object RAM, DMA, scanning and drawing |
+| Konami K053251 | Video layer/sprite priority and shadow-priority selection |
+| Konami K054338 | Color mixing, alpha-style effects, shadow/highlight math and brightness |
+| Konami K054000 | Collision/security register device |
+| Konami K053252 / CCU timing | Pixel, raster and interrupt timing |
+| GX173 protection blitter | Boot-time and runtime data transformation, modeled as HLE |
+| Palette RAM, work RAM, tile RAM, sprite RAM and EEPROM | Board memory and persistent settings |
 
 ## Credits
 
-- **JTFRAME**, **jt51** — the GPLv3 frameworks this core is built on
-- **MAME** — hardware reference (`moo.cpp` driver, `k054539.cpp` sound chip; `konami/asterix.cpp` driver)
-- **Furrtek** — silicon reverse-engineering of the K054539
+| Credit | Contribution |
+|---|---|
+| Meathax / Bucky MiSTer contributors | Bucky-specific GX173 integration, address map, protection, device models, MRA packaging and validation work |
+| Jose Tejada Gómez / Jotego | JTFRAME and jtcores framework, fx68k, Z80, JT51 and shared MiSTer build infrastructure |
+| Rafael Eduardo Paiva Feener and Miki Saito | Credits retained from the inherited JTCORES video and sprite modules |
+| Existing Moo Mesa core and its contributors | GX151/GX173-family CPU, video, sound, SDRAM and I/O baseline; preserved under its original notices |
+| MAME project contributors | Hardware reference and software-visible contracts, especially `moo.cpp` and `k054539.cpp` |
+| Furrtek / SiliconRE contributors | Reconstructed Konami silicon documentation, schematics, pinouts and behavioral evidence for the K054000, K054338 and K054539 |
+| MiSTer Template contributors | Official standalone MiSTer packaging reference used by the project |
+| MiSTer FPGA project, Sorgelig and the MiSTer community | FPGA platform, core framework, documentation and preservation ecosystem |
+| Konami | Original GX173 hardware and Bucky O'Hare design |
 
-## Acknowledgements
-
-- To **Sorgelig** and the whole **MiSTer FPGA** project and community.
-- To the **MAME community**, for the preservation and reverse-engineering work without which this core
-  would not be possible.
-- And to **Anthropic**, for **Claude**.
+The complete pinned source and evidence ledger is in [`SOURCES.md`](SOURCES.md). Upstream copyright
+and license notices are retained in the relevant source files.
 
 ## License
 
-**GPLv3** (see [`LICENSE`](LICENSE)) — required by the JTFRAME / jt51 dependencies; their copyright
-notices are preserved in the sources.
+The core source in this repository is released under the **GNU General Public License v3**; see
+[`LICENSE`](LICENSE).
 
----
+The repository also contains or references components with their own notices, including JTFRAME/jtcores
+GPL notices, MAME's BSD-3-Clause reference source, and SiliconRE's GPL-2.0 documentation. SiliconRE
+material is retained as evidence and is not linked into the production RTL. Check each source header
+for its applicable terms.
 
-## Español
+Copyrighted game ROMs are not included. Use only ROMs that you are legally entitled to use.
 
-🇪🇸 Español · [🇬🇧 English ↑](#konami-fpga)
+## How to install
 
-Recreaciones en FPGA de placas arcade de **Konami**, construidas sobre el framework **JTFRAME** (GPLv3).
-Objetivo MiSTer.
+1. Obtain the matching `Bucky.rbf` and one or more Bucky O'Hare `.mra` files.
+2. Copy the `.mra` files to `/_Arcade/` on the MiSTer SD card.
+3. Copy `Bucky.rbf` to `/_Arcade/cores/`.
+4. Place the legally obtained MAME ROM ZIPs in `/games/mame/`.
+5. Launch the desired Bucky O'Hare revision from the MiSTer Arcade menu.
 
-> ℹ️ Proyecto independiente — **NO** es un core oficial de jotego. Construido sobre su framework JTFRAME
-> (GPLv3).
+Alternatively, add this entry to `downloader.ini` and run **Update All** to get all of the Meathax
+cores automatically:
 
-## Cores
-
-### Asterix (Konami, 1993)
-Run-and-gun / yo-contra-el-barrio (placa GX068, familia Xexex). Hardware: CPU principal **MC68000** + CPU
-de sonido **Z80** + **YM2151** (FM) + **K053260** (sonido PCM) + customs de vídeo de Konami — **K056832**
-(tilemap), **K053244/K053245** (sprites, con mezcla de sombra), **K053251** (mezclador de prioridad) —
-más el **blitter de paleta** de la placa (un copiador ROM→paleta por bus-master, recreado por HLE; es un
-**boot-gate de sonido**: el 68000 no pasa del POST hasta que el handshake Z80+K053260 se completa).
-
-**Estado: jugable en MiSTer** — arranque, vídeo (tilemap + sprites + sombras), el blitter de paleta y el
-**audio (FM del YM2151 + PCM del K053260, los 4 canales, incluida la moneda)** funcionan en hardware.
-
-A diferencia del K054539 de `moomesa`, el chip PCM **K053260** ya existe como módulo validado en el árbol
-común de jtframe (`jt053260`), así que este core lo reutiliza en vez de escribir uno desde cero; el
-trabajo propio del core es el mapa de memoria del 68000, el blitter de paleta, y adaptar el pipeline de
-vídeo K056832/K053244/K053245 (banco de tiles, rowscroll, reglas de prioridad/sombra de sprites) al
-cableado exacto de esta placa.
-
-Hay un `.rbf` precompilado en [`releases/`](releases/) — **distribuible**: todas las ROMs del juego se
-cargan en **runtime** desde el `.mra`; el bitstream no hornea ningún dato del juego. O compila desde
-fuente (`cores/asterix/`). Ver [`BUILD.md`](BUILD.md).
-
-### Wild West C.O.W.-Boys of Moo Mesa (Konami, 1992)
-Run-and-gun / yo-contra-el-barrio (los vaqueros de dibujos). Hardware (placa GX151 / familia Xexex):
-CPU principal **MC68000** + CPU de sonido **Z80** + **YM2151** (FM) + **K054539** (sonido PCM) + customs
-de vídeo de Konami — **K056832** (tilemap), **K053246/K053247** (sprites), **K054338** (color / mezcla
-alpha), **K053251** (prioridad) — más el **blitter de protección** de la placa (recreado por HLE).
-
-**Estado: jugable en MiSTer** — arranque, vídeo (tilemap + sprites + alpha), el blitter de protección y
-el **audio (FM del YM2151 + PCM del K054539)** funcionan en hardware.
-
-Dos piezas están **escritas desde cero**: el chip PCM **`k054539`** (no existe `jt539` en jtframe — es
-un módulo privado) y el tilemap **`k056832`**. El K054539 está validado **bit-exacto** contra un modelo
-C++ derivado de MAME.
-
-Hay un `.rbf` precompilado en [`releases/`](releases/) — **distribuible**: todas las ROMs del juego se
-cargan en **runtime** desde el `.mra`; el bitstream solo hornea las tablas Q16 de volumen/pan del
-K054539 (`voltab.hex` / `pantab.hex`, matemáticas, no datos del juego) y una tabla de ceros — **ningún
-dato con copyright**. O compila desde fuente (`cores/moomesa/`). Ver [`BUILD.md`](BUILD.md).
-
-> ℹ️ Nomenclatura: el chip PCM conserva su nombre real de silicio (`k054539`, sin `jt`); el GAMETOP es
-> `jtmoomesa_game` (memgen impone el `jt`).
-
-## Construir
-
-Este repo contiene **solo el código del core** (`cores/<core>/`, p.ej. `cores/asterix/`,
-`cores/moomesa/`). El framework y los cores de terceros (jtframe, jt51) **no se incluyen** — los aporta
-jtframe. Versión rápida:
-
-1. Clona [jtcores](https://github.com/jotego/jtcores) (trae jtframe + módulos).
-2. Copia `cores/<core>/` de este repo dentro de tu checkout de jtcores.
-3. Compila: `jtcore <core> -mister -c` (p.ej. `jtcore asterix -mister -c`).
-
-📋 **Pasos detallados en [`BUILD.md`](BUILD.md).**
-
-Estructura del core (igual para todos los cores de este repo):
-```
-cores/<core>/
-├── hdl/   Verilog del core
-├── cfg/   macros.def, mem.yaml, files.yaml, mame2mra.toml
-└── mra/   definición .mra (cómo ensamblar las ROMs)
+```ini
+[meathax/meatcores]
+db_url = https://raw.githubusercontent.com/meathax/meatcores/db/downloader_meathax_meatcores.zip
 ```
 
-## ROMs
-
-**No se incluyen** (material con copyright). Cada cual aporta las ROMs originales de su propia placa para
-cada juego. El `.mra` describe cómo ensamblarlas; cada ROM (programa, sonido, samples PCM, tiles, sprites) se
-carga en runtime, así que el `.rbf` no lleva ningún dato con copyright.
-
-## Créditos
-
-- **JTFRAME**, **jt51** — los frameworks GPLv3 sobre los que se construye este core
-- **MAME** — referencia de hardware (driver `moo.cpp`, chip de sonido `k054539.cpp`; driver `konami/asterix.cpp`)
-- **Furrtek** — ingeniería inversa del silicio del K054539
-
-## Agradecimientos
-
-- A **Sorgelig** y todo el proyecto y comunidad **MiSTer FPGA**.
-- A la **comunidad MAME**, por el trabajo de preservación e ingeniería inversa sin el cual este core no
-  sería posible.
-- Y a **Anthropic**, por **Claude**.
-
-## Licencia
-
-**GPLv3** (ver [`LICENSE`](LICENSE)) — obligado por las dependencias JTFRAME / jt51; sus avisos de
-copyright se conservan en las fuentes.
+The MRA files select the RBF and assemble the ROM stream at launch; the game ROMs are not baked into
+the bitstream.

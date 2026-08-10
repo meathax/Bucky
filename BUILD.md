@@ -20,7 +20,7 @@ loaded at **runtime** from the `.mra`, so each bitstream is distributable as-is.
 2. **Build** (generate + compile):
    ```
    cd <jtcores> && source setprj.sh
-   jtcore asterix -mister -c
+   jtcore asterix -mister
    ```
    This generates `<jtcores>/cores/asterix/mister/` (Quartus project + the memgen GAMETOP
    `jtasterix_game_sdram.v`) and compiles it. The result is the `.rbf` under `mister/output_files/`.
@@ -43,7 +43,7 @@ completes, so a broken sound path shows up as "the game doesn't boot", not just 
 2. **Build** (generate + compile):
    ```
    cd <jtcores> && source setprj.sh
-   jtcore moomesa -mister -c
+   jtcore moomesa -mister
    ```
    This generates `<jtcores>/cores/moomesa/mister/` (Quartus project + the memgen GAMETOP
    `jtmoomesa_game_sdram.v`) and compiles it. The result is the `.rbf` under `mister/output_files/`.
@@ -58,6 +58,43 @@ runtime from the `.mra`.
 > **Video power-up:** the core forces `ALLOW_POWER_UP_DONT_CARE OFF` in its `.qsf` so the unreset video
 > pipeline flops power up at 0 (clean black on load) instead of showing vertical bars. Verify the setup
 > slack stays positive after any change.
+
+## Bucky
+
+1. **Place the core** inside jtcores:
+   ```
+   cp -r cores/bucky  <jtcores>/cores/bucky
+   ```
+2. **Run the source-only pre-hardware gate** from this repository. It checks
+   the explicit production RTL closure and the existing parent/component
+   evidence without invoking Quartus:
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File cores/bucky/tools/pre_hardware_audit.ps1
+   ```
+3. **Generate the MiSTer project and run the cheap source-closure gate** from
+   the target build directory before spending time on a full fit:
+   ```
+   source setprj.sh
+   cd cores/bucky/mister
+   jtframe mem bucky --target=mister --local
+   jtframe mmr bucky
+   jtframe files syn bucky --target=mister --local
+   ```
+   Run `audit_rtl_placement.ps1 -StagedCore <jtcores>/cores/bucky` after
+   generation. Once a Quartus map report exists, repeat it with
+   `-MapReport <path-to-bucky.map.rpt>` and inspect the inferred memories, DSP
+   count and per-entity ALUT table. Do not accept a full RBF build while an
+   intended memory reports
+   `uninferred due to` or while the generated QIP contains a foreign or
+   disconnected sprite source.
+4. **Build the RBF** only after the source gate is clean:
+   ```
+   cd <jtcores>
+   jtcore bucky -mister
+   ```
+   The result is `cores/bucky/mister/output_files/bucky.rbf` in the jtcores
+   checkout. Keep the map/fit/STA reports with the build record; they are the
+   placement evidence for the resulting RBF.
 
 ## Legal / distribution
 - This repo's **code** is GPLv3 and contains no ROMs.
