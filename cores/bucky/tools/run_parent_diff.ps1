@@ -23,6 +23,7 @@ if ($LASTEXITCODE -ne 0) { throw 'MAME trace runner failed' }
 if ($LASTEXITCODE -ne 0) { throw 'Parent simulation runner failed' }
 
 & python (Join-Path $root 'cores\bucky\tools\diff\compare_traces.py') `
-    $reference $candidate --allow-candidate-tail
+    $reference $candidate --allow-candidate-tail --mask-inactive-data `
+    --failure-report (Join-Path $work 'first-divergence.json')
 if ($LASTEXITCODE -ne 0) { throw 'Parent/MAME bus differential failed' }
 Write-Output "PASS: parent/MAME differential reference=$reference candidate=$candidate"

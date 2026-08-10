@@ -5,6 +5,7 @@ import sys
 import xml.etree.ElementTree as ET
 
 EXPECTED = {"bucky", "buckyea", "buckyjaa", "buckyuab", "buckyaab", "buckyaa"}
+EXPECTED_RBF = "Arcade-Bucky"
 PARENT_ROMS = {
     "173eab02.q6": "9b45f122",
     "173eab01.q5": "7785ac8a",
@@ -36,8 +37,8 @@ def validate(path: Path) -> str:
     root = ET.parse(path).getroot()
     errors: list[str] = []
     name = setname(root)
-    if text(root, "rbf") != "Bucky":
-        errors.append("<rbf> must be Bucky")
+    if text(root, "rbf") != EXPECTED_RBF:
+        errors.append(f"<rbf> must be {EXPECTED_RBF}")
     if text(root, "resolution") != "15kHz":
         errors.append("<resolution> must be 15kHz")
     if name not in EXPECTED:

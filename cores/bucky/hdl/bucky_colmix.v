@@ -16,6 +16,14 @@
     Version: 1.0
     Date: 30-9-2024 */
 
+`ifndef BUCKY_TEST_PLUSARGS
+`ifdef SYNTHESIS
+`define BUCKY_TEST_PLUSARGS(arg) 1'b0
+`else
+`define BUCKY_TEST_PLUSARGS(arg) $test$plusargs(arg)
+`endif
+`endif
+
 module bucky_colmix(
     input             rst,
     input             clk,
@@ -118,7 +126,7 @@ integer pal_nonzero_dbg_count;
 initial pal_dbg_count = 0;
 initial pal_nonzero_dbg_count = 0;
 always @(posedge clk) begin
-    if ($test$plusargs("PALDIAG") && pal_cs && cpu_we &&
+    if (`BUCKY_TEST_PLUSARGS("PALDIAG") && pal_cs && cpu_we &&
         ((pal_dbg_count < 96) || (cpu_dout != 16'd0 && pal_nonzero_dbg_count < 64))) begin
         $display("[PALWR] addr=%03x cidx=%03x dsn=%b din=%04x we=%b/%b/%b cpu_addr1=%b",
                  cpu_addr, cpu_cidx, cpu_dsn, cpu_dout, we_r, we_g, we_b,

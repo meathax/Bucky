@@ -11,6 +11,14 @@
     sprite-source correction still require their documented regression and
     hardware gates; they are not represented as selectable experimental RTL.
 */
+`ifndef BUCKY_TEST_PLUSARGS
+`ifdef SYNTHESIS
+`define BUCKY_TEST_PLUSARGS(arg) 1'b0
+`else
+`define BUCKY_TEST_PLUSARGS(arg) $test$plusargs(arg)
+`endif
+`endif
+
 module bucky_video(
     input             rst,
     input             clk,
@@ -261,19 +269,19 @@ initial obj_src_diag_count = 0;
 initial obj_live_diag_count = 0;
 initial obj_nonzero_diag_count = 0;
 initial obj_reg_diag_count = 0;
-always @(posedge clk) if ($test$plusargs("OBJ_DIAG") && objsys_cs && cpu_we && obj_src_diag_count < 32) begin
+always @(posedge clk) if (`BUCKY_TEST_PLUSARGS("OBJ_DIAG") && objsys_cs && cpu_we && obj_src_diag_count < 32) begin
     $display("OBJ_SRC_WR n=%0d cpu_addr=%04x obj_off=%04x orama=%04x dsn=%b data=%04x we=%b",
         obj_src_diag_count, cpu_addr, obj_cpu_addr, orama, cpu_dsn, cpu_dout, orama_we);
     obj_src_diag_count <= obj_src_diag_count + 1;
 end
-always @(posedge clk) if ($test$plusargs("OBJ_DIAG") && objsys_cs && cpu_we &&
+always @(posedge clk) if (`BUCKY_TEST_PLUSARGS("OBJ_DIAG") && objsys_cs && cpu_we &&
                          obj_cpu_addr[14:7] >= 8'h40 && obj_cpu_addr[6:3] == 4'd0 &&
                          obj_live_diag_count < 96) begin
     $display("OBJ_LIVE_WR n=%0d cpu_addr=%04x obj_off=%04x orama=%04x dsn=%b data=%04x we=%b",
         obj_live_diag_count, cpu_addr, obj_cpu_addr, orama, cpu_dsn, cpu_dout, orama_we);
     obj_live_diag_count <= obj_live_diag_count + 1;
 end
-always @(posedge clk) if ($test$plusargs("OBJ_DIAG") && objsys_cs && cpu_we &&
+always @(posedge clk) if (`BUCKY_TEST_PLUSARGS("OBJ_DIAG") && objsys_cs && cpu_we &&
                          obj_cpu_addr[14:7] >= 8'h40 && obj_cpu_addr[14:7] <= 8'h70 &&
                          obj_cpu_addr[6:3] == 4'd0 && cpu_dout[15] &&
                          cpu_dout[7:0] != 8'h00 && cpu_dout != 16'h5555 &&
@@ -294,12 +302,12 @@ end
 // Luego el fallo esta en el TRIGGER del DMA: dma_en && (lvbl_sh==2'b10 && hs_pos), que depende
 // de `hs` y `lvbl` — las señales que el tb de video INYECTA y el core real debe GENERAR.
 always @(posedge clk) if( objreg_cs && cpu_we ) begin
-    if ($test$plusargs("DIAG") || ($test$plusargs("OBJ_DIAG") && obj_reg_diag_count < 64 &&
+    if (`BUCKY_TEST_PLUSARGS("DIAG") || (`BUCKY_TEST_PLUSARGS("OBJ_DIAG") && obj_reg_diag_count < 64 &&
         (cpu_dout[7:0] != 8'h00) && (cpu_dout[7:0] != 8'h20))) begin
         $display("OBJREG_WR ommra=%b (addr[2:1]=%0d) dsn=%b dout=%04x -> %s",
             ommra, ommra[2:1], cpu_dsn, cpu_dout,
             (ommra[2:1]==2'd2 && !cpu_dsn[0]) ? "LATCHEA cfg" : "no toca cfg");
-        if ($test$plusargs("OBJ_DIAG")) obj_reg_diag_count <= obj_reg_diag_count + 1;
+        if (`BUCKY_TEST_PLUSARGS("OBJ_DIAG")) obj_reg_diag_count <= obj_reg_diag_count + 1;
     end
 end
 
@@ -313,7 +321,7 @@ always @(posedge clk) begin
     if( ~hs_l & hs ) n_hs <= n_hs+1;
     if( lvbl_l2 & ~lvbl ) begin
         n_lvbl <= n_lvbl+1;
-        if ($test$plusargs("DIAG"))
+        if (`BUCKY_TEST_PLUSARGS("DIAG"))
             $display("VTIMER frame=%0d | hs_pos=%0d pxl2_cen=%0d (por frame) | MMRCFG cfg=%02x dma_en=%b",
                 n_lvbl, n_hs, n_p2c, obj_mmr, obj_mmr[4]);
         n_hs <= 0; n_p2c <= 0;

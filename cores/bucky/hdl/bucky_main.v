@@ -22,6 +22,14 @@
     663-701 (puertos). IRQ = patron simson/vendetta (jtframe_edge) mapeado a IRQ5/IRQ4.
 */
 
+`ifndef BUCKY_TEST_PLUSARGS
+`ifdef SYNTHESIS
+`define BUCKY_TEST_PLUSARGS(arg) 1'b0
+`else
+`define BUCKY_TEST_PLUSARGS(arg) $test$plusargs(arg)
+`endif
+`endif
+
 module bucky_main(
     input                rst,
     input                clk, // 48 MHz
@@ -151,7 +159,7 @@ assign snd_wrn  = ~(sndirq_cs & ~RnW);
 // tile ROM readback 190000-191fff, palette 1b0000-1b3fff, data ROM 200000-23ffff.
 `ifdef SIMULATION
 reg none_cs;
-wire sim_diag = $test$plusargs("DIAG");
+wire sim_diag = `BUCKY_TEST_PLUSARGS("DIAG");
 `endif
 always @* begin
     rom_cs      = 0; ram_cs   = 0; obj_cs   = 0; vram_cs  = 0; pal_cs  = 0;
@@ -601,7 +609,7 @@ always @(posedge clk, posedge rst) begin
             // Capture actual writes into the active parent sprite-source
             // slots. This is simulation-only evidence for the source-RAM
             // address/byte-lane comparison against MAME.
-            if ($test$plusargs("OBJ_BUS_DIAG") && obj_cs &&
+            if (`BUCKY_TEST_PLUSARGS("OBJ_BUS_DIAG") && obj_cs &&
                 (frame_id >= 16'd400) && (eff_addr[15:8] >= 8'h40) &&
                 obj_bus_diag_count < 512) begin
                 $display("OBJ_BUS_WR pc=%06x addr=%06x dsn=%b data=%04x",
@@ -618,7 +626,7 @@ always @(posedge clk, posedge rst) begin
             // through 0x0ce000-0x0ce01f. Keep this separate from the blitter
             // state logger so we can tell a missing CPU write/decode from a
             // broken state machine or memory handshake.
-            if ($test$plusargs("PROT_DIAG") && prot_cs && prot_diag_count < 128) begin
+            if (`BUCKY_TEST_PLUSARGS("PROT_DIAG") && prot_cs && prot_diag_count < 128) begin
                 $display("PROT_WR addr=%06x dsn=%b data=%04x len=%04x trig=%b",
                          {eff_addr,1'b0}, eff_dsn, cpu_dout_68k,
                          protram[15], blt_trig);
@@ -629,7 +637,7 @@ always @(posedge clk, posedge rst) begin
             // Observe the real accepted bus write (rather than the CPU's
             // internal stack, which is not the architectural D7 register) so
             // a failing test can be identified without altering the design.
-            if ($test$plusargs("POST_DIAG") &&
+            if (`BUCKY_TEST_PLUSARGS("POST_DIAG") &&
                 ram_cs &&
                 ((eff_addr[23:1] == 23'h0405fe) ||
                  (eff_addr[23:1] == 23'h0405ff))) begin
@@ -639,12 +647,12 @@ always @(posedge clk, posedge rst) begin
                 // Earlier RAM self-tests deliberately touch the same mailbox
                 // words with 0x5555/0xaaaa/0xffff.  Only stop after the final
                 // sound/checksum phase has reached the post-1a00 code.
-                if ($test$plusargs("POST_DIAG_STOP") &&
+                if (`BUCKY_TEST_PLUSARGS("POST_DIAG_STOP") &&
                     ({pc_last,1'b0} >= 24'h001a00) &&
                     (eff_addr[23:1] == 23'h0405ff)) $finish;
             end
         end
-        if ($test$plusargs("PROT_DIAG") && blt_trig && prot_diag_count < 128) begin
+        if (`BUCKY_TEST_PLUSARGS("PROT_DIAG") && blt_trig && prot_diag_count < 128) begin
             $display("PROT_TRIG addr=%06x data=%04x len=%04x busy=%b",
                      {eff_addr,1'b0}, cpu_dout_68k, protram[15], blt_busy_r);
             prot_diag_count = prot_diag_count + 1;
@@ -653,7 +661,7 @@ always @(posedge clk, posedge rst) begin
         // at 0x080013.  Probe only this address when requested so a RAM
         // byte-lane/readback failure is distinguishable from a sprite ASIC
         // problem without enabling the verbose general diagnostics.
-        if ($test$plusargs("OBJ_DIAG") && obj_cfg_ram_diag_count < 64 &&
+        if (`BUCKY_TEST_PLUSARGS("OBJ_DIAG") && obj_cfg_ram_diag_count < 64 &&
             // A0 is not present on the 68000 bus: an odd-byte access to
             // 0x080013 is presented with the even word address 0x080012 and
             // LDSn asserted.
@@ -670,7 +678,7 @@ always @(posedge clk, posedge rst) begin
         // commands.  Keep an opt-in edge-level probe here so a failed POST
         // can be separated into a main-bus decode, latch, or Z80 response
         // problem without changing synthesizable behavior.
-        if ($test$plusargs("SOUND_DIAG") && sound_diag_count < 256 &&
+        if (`BUCKY_TEST_PLUSARGS("SOUND_DIAG") && sound_diag_count < 256 &&
             pair_cs && !BUSn) begin
             if (busn_l)
                 $display("[SOUND] addr=%06x rnw=%b we=%b dout=%02x pair=%02x din=%04x irq=%b",

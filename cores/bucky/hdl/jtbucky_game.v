@@ -16,6 +16,14 @@
     Version: 1.0
     Date: 23-8-2024 */
 
+`ifndef BUCKY_TEST_PLUSARGS
+`ifdef SYNTHESIS
+`define BUCKY_TEST_PLUSARGS(arg) 1'b0
+`else
+`define BUCKY_TEST_PLUSARGS(arg) $test$plusargs(arg)
+`endif
+`endif
+
 module jtbucky_game(
     `include "jtframe_game_ports.inc" // see $JTFRAME/hdl/inc/jtframe_game_ports.inc
 );
@@ -74,7 +82,7 @@ always @(posedge clk) begin
     end
     if(~LVBL & lvbl_d) begin   // flanco de bajada de LVBL = fin de frame visible -> volcar stats
         scr_nframe=scr_nframe+1;
-        if ($test$plusargs("DIAG"))
+        if (`BUCKY_TEST_PLUSARGS("DIAG"))
             $display("[SCRLAT] frame=%0d reqs=%0d oks=%0d avg=%0.2f max=%0d reqs/linea=%0.1f hist[<4 <8 <16 <32 >=32]= %0d %0d %0d %0d %0d",
                 scr_nframe, scr_nreq, scr_nok, (scr_nok>0)?(scr_latsum/scr_nok):0.0, scr_latmax,
                 (scr_nframe>0)?(scr_nreq*1.0/scr_nframe/264.0):0.0, scr_lb0,scr_lb4,scr_lb8,scr_lb16,scr_lb32);

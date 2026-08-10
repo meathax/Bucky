@@ -16,6 +16,14 @@
     Version: 1.0
     Date: 7-7-2024 */
 
+`ifndef BUCKY_TEST_PLUSARGS
+`ifdef SYNTHESIS
+`define BUCKY_TEST_PLUSARGS(arg) 1'b0
+`else
+`define BUCKY_TEST_PLUSARGS(arg) $test$plusargs(arg)
+`endif
+`endif
+
 module cowboys_sound(
     input           rst,
     input           clk,
@@ -163,7 +171,7 @@ always @(posedge clk) begin
     // rather than guessed from the 68k latch read alone.  The PC wire is
     // exposed by the T80s simulation model and is absent from synthesis.
     z80_bus_d <= (!mreq_n || !iorq_n) && (!rd_n || !wr_n);
-    if ($test$plusargs("Z80_DIAG") && z80_diag_count < 4000 &&
+    if (`BUCKY_TEST_PLUSARGS("Z80_DIAG") && z80_diag_count < 4000 &&
         ((!mreq_n || !iorq_n) && (!rd_n || !wr_n)) && !z80_bus_d) begin
         $fwrite(fz80, "pc=%04x a=%04x mreq=%b iorq=%b rd=%b wr=%b din=%02x dout=%02x latch=%b saddr=%01x\n",
                 u_cpu.u_sysz80_nvram.u_z80wait.u_z80_devwait.u_cpu.u_cpu.PC,
@@ -171,7 +179,7 @@ always @(posedge clk) begin
                 latch_we, A[1:0]);
         z80_diag_count = z80_diag_count + 1;
     end
-    if ($test$plusargs("Z80_DIAG") && latch_we && !latch_we_d)
+    if (`BUCKY_TEST_PLUSARGS("Z80_DIAG") && latch_we && !latch_we_d)
         $display("[Z80LATCH] pc=%04x port=%01x data=%02x intn=%b",
                  u_cpu.u_sysz80_nvram.u_z80wait.u_z80_devwait.u_cpu.u_cpu.PC,
                  A[1:0], cpu_dout, int_n);

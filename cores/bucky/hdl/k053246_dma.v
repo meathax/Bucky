@@ -59,6 +59,14 @@
     Version: 1.0
     Date: 4-2-2024 */
 
+`ifndef BUCKY_TEST_PLUSARGS
+`ifdef SYNTHESIS
+`define BUCKY_TEST_PLUSARGS(arg) 1'b0
+`else
+`define BUCKY_TEST_PLUSARGS(arg) $test$plusargs(arg)
+`endif
+`endif
+
 module k053246_dma(
     input             rst,
     input             clk,
@@ -92,7 +100,7 @@ integer obj_dma_diag_count;
 integer obj_dma_active_diag_count;
 reg obj_dma_bsy_l;
 initial begin obj_dma_diag_count = 0; obj_dma_active_diag_count = 0; obj_dma_bsy_l = 1'b0; end
-always @(posedge clk) if ($test$plusargs("OBJ_DIAG")) begin
+always @(posedge clk) if (`BUCKY_TEST_PLUSARGS("OBJ_DIAG")) begin
     obj_dma_bsy_l <= dma_bsy;
     if (!obj_dma_bsy_l && dma_bsy) begin
         obj_dma_diag_count <= 0;
@@ -154,8 +162,9 @@ always @* begin
     trigger = EDGE_TRIGGER==1 ? trigger_at_dmaen : trigger_two_lines_after_lvbl;
 end
 
-always @(posedge clk) if(pxl2_cen) begin
-    dmaen_l <= dma_en;
+always @(posedge clk, posedge rst) begin
+    if( rst ) dmaen_l <= 1'b0;
+    else if( pxl2_cen ) dmaen_l <= dma_en;
 end
 
 always @(posedge clk) begin
@@ -166,8 +175,8 @@ always @(posedge clk) begin
         dma_addr <= 0;
         dma_bufa <= 0;
         dma_bufd <= 0;
-        dma_bsy  <= 0;
-        dma_wait <= 0;
+        dma_ok   <= 0;
+        lvbl_sh  <= 0;
         hsl      <= 0;
         flicker  <= 0;
     end else if( pxl2_cen ) begin

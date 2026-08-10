@@ -63,6 +63,7 @@ sources=(
     "$(native_path "$root/.workbench/upstream/jtcores/modules/jtframe/hdl/cpu/t80/T80s.v")"
     "$(native_path "$root/cores/bucky/tools/diff/mister_bus_trace.sv")"
     "$(native_path "$root/cores/bucky/rtl/sim/bucky_main_trace_bind.sv")"
+    "$(native_path "$root/cores/bucky/rtl/sim/bucky_contract_assertions.sv")"
     "$(native_path "$root/cores/bucky/hdl/sim/tb_bucky_parent.sv")"
 )
 for source in "${qip_sources[@]}"; do

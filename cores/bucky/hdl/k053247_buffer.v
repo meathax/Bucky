@@ -48,6 +48,7 @@ module k053247_buffer #(parameter
     SHADOW      = 0,     // 1 enables shadows on data MSB
     KEEP_OLD    = 0
 )(
+    input   rst,
     input   clk,
     input   LHBL,
     input   flip,
@@ -79,19 +80,25 @@ wire                delete_we = dly[0];
 wire [EW-1:0]       blank_data = BLANK[EW-1:0];
 wire [DW-1:0]       dump_data;
 
-`ifdef SIMULATION
-initial line = 0;
-`endif
-
-always @(posedge clk) begin
-    last_LHBL <= LHBL;
-    if( !LHBL && last_LHBL ) line <= ~line;
+always @(posedge clk, posedge rst) begin
+    if( rst ) begin
+        line      <= 1'b0;
+        last_LHBL <= 1'b0;
+    end else begin
+        last_LHBL <= LHBL;
+        if( !LHBL && last_LHBL ) line <= ~line;
+    end
 end
 
-always @(posedge clk) begin
-    if( rd ) dly <= { 1'b1, {BLANK_DLY-1{1'b0}} };
-    else     dly <= dly>>1;
-    if( delete_we ) rd_data <= dump_data;
+always @(posedge clk, posedge rst) begin
+    if( rst ) begin
+        dly     <= {BLANK_DLY{1'b0}};
+        rd_data <= {DW{1'b0}};
+    end else begin
+        if( rd ) dly <= { 1'b1, {BLANK_DLY-1{1'b0}} };
+        else     dly <= dly>>1;
+        if( delete_we ) rd_data <= dump_data;
+    end
 end
 
 wire  [1:0]  rd_bank = rd_addr[1:0];

@@ -35,6 +35,14 @@
 // shadow bit is always written, even if the pixel is blank.
 // The shadow bit must be the MSB
 
+`ifndef BUCKY_TEST_PLUSARGS
+`ifdef SYNTHESIS
+`define BUCKY_TEST_PLUSARGS(arg) 1'b0
+`else
+`define BUCKY_TEST_PLUSARGS(arg) $test$plusargs(arg)
+`endif
+`endif
+
 module k053247_gate #( parameter
     AW    =  9,    // Buffer with
     CW    = 12,    // code width
@@ -203,7 +211,7 @@ endgenerate
 //    linea activa (~hs). Es la VERDAD de que posiciones de buffer son VISIBLES — la base del cull-X.
 //    ses.35 asumio [4..387] sin medirlo y rompio la placa; aqui se mide y se imprime al cambiar min/max.
 `ifdef VERILATOR
-wire diag_en = $test$plusargs("DIAG");
+wire diag_en = `BUCKY_TEST_PLUSARGS("DIAG");
 // MAPA REAL columna->hdf del readout (RTL, sin replicas del tb). Cuenta pxl_cen desde hs y publica el hdf
 // leido en cada columna, deduplicado (mismo patron cada linea). Revela el rango REAL de buf_addr mostrado.
 integer  rdcol=0;
@@ -290,6 +298,7 @@ k053247_buffer #(
     .SHADOW_PEN ( SHADOW_PEN  ),
     .KEEP_OLD   ( KEEP_OLD    )
 ) u_linebuf(
+    .rst        ( rst       ),
     .clk        ( clk       ),
     .flip       ( 1'b0      ),      // flip is solved before this instance
     .LHBL       ( ~hs       ),

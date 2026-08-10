@@ -45,6 +45,10 @@ jteeprom:
 # cowboys tiene su propio FORK renombrado (k053246*, cowboys_obj.v) desde la ses.24. Listarlos solo
 # metia codigo muerto en el proyecto. Ver la cabecera de k053246_scan.sv.
 jtframe:
+  - from: cpu
+    get:
+      - jtframe_m68k.yaml
+      - jtframe_z80.yaml
   - from: video
     get:
       - jtframe_vtimer.v
@@ -58,3 +62,6 @@ jtframe:
 # contra el golden de MAME (k054539.cpp) + la RE de Furrtek. NO se usa el 'jt539:' privado de Jotego
 # (sponsor-gated, no clonable). Incluye los tres formatos PCM, mezcla, reverb, reverse,
 # UPDATE_AT_KEYON y readback de registros/puerto de reverb.
+fx68k:
+  - get:
+      - files.yaml

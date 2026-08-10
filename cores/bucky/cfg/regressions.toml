@@ -1,0 +1,64 @@
+schema_version = 1
+reference = "MAME 0.289"
+driver = "src/mame/konami/moo.cpp"
+default_dipsw = "0x00a00000"
+trace_schema = "mister-bus-jsonl-v1"
+required_checkpoints = ["post-reset", "post-ramtest", "attract-entry", "post-coinstart", "gameplay-entry"]
+
+[checkpoint_policy]
+save_before_input = true
+automatic_save = true
+require_save_confirmation = true
+reject_layout_mismatch = true
+reject_prior_frame_completion = true
+
+[[scenario]]
+id = "bucky-eab-parent-attract"
+set = "bucky"
+role = "parent"
+stop = "attract-entry"
+require = ["post-mailbox-zero", "no-exception", "sprite-dma-complete"]
+
+[[scenario]]
+id = "bucky-eab-parent-gameplay"
+set = "bucky"
+role = "parent"
+restore = "attract-entry"
+inputs = ["coin1", "start1"]
+stop = "gameplay-entry"
+require = ["no-exception", "irq5-ack", "irq4-ack", "nonblank-native-frame"]
+
+[[scenario]]
+id = "buckyea-clone-attract"
+set = "buckyea"
+role = "clone"
+stop = "attract-entry"
+require = ["post-mailbox-zero", "no-exception"]
+
+[[scenario]]
+id = "buckyjaa-clone-attract"
+set = "buckyjaa"
+role = "clone"
+stop = "attract-entry"
+require = ["post-mailbox-zero", "no-exception"]
+
+[[scenario]]
+id = "buckyuab-clone-attract"
+set = "buckyuab"
+role = "clone"
+stop = "attract-entry"
+require = ["post-mailbox-zero", "no-exception"]
+
+[[scenario]]
+id = "buckyaab-clone-attract"
+set = "buckyaab"
+role = "clone"
+stop = "attract-entry"
+require = ["post-mailbox-zero", "no-exception"]
+
+[[scenario]]
+id = "buckyaa-clone-attract"
+set = "buckyaa"
+role = "clone"
+stop = "attract-entry"
+require = ["post-mailbox-zero", "no-exception"]
