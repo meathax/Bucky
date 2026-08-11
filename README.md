@@ -24,10 +24,7 @@ The Bucky O'Hare MRA exposes the following board configuration and control optio
 | Sound Output | Stereo or Mono |
 | Coin Mechanism | Independent or Common |
 | Number of Players | 2, 3 or 4 |
-| CRT Adjust | Enable or disable CRT geometry adjustment |
-| H-Position | Horizontal sync/content position adjustment |
-| V-Shift | Vertical image shift |
-| H-Size | Horizontal image size |
+| Scale | Normal, V-Integer, Narrower HV-Integer, Wider HV-Integer (JTFRAME) |
 | Controls | Four 8-way joysticks with Shoot, Jump and Special buttons |
 | NVRAM | Save and restore the emulated 128-byte EEPROM through MiSTer settings |
 

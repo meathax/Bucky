@@ -229,3 +229,19 @@ K054000/K054338 tests. Real-game accuracy claims begin only after deterministic 
 - Parent-only source/MRA/JTFRAME/Yosys pre-hardware audit passes. No Verilator,
   Quartus, RBF generation or hardware test was run during this cleanup. The
   gameplay-length sprite-source regression remains the functional release gate.
+
+## Safe throughput and video-control pass - 2026-08-11
+
+- Retained the measured production throughput path: 64-bit sprite line caching,
+  64-word SDRAM bursts on BA0..BA3, tile producer/consumer overlap, registered
+  tile line buffers and the compact GX173 sprite-source mirror. No speculative
+  scan culling, skid FIFO, audio-table retiming or SDRAM precharge change was
+  enabled without a focused gameplay/audio proof.
+- Documented the existing JTFRAME Scale menu names: Normal, V-Integer,
+  Narrower HV-Integer and Wider HV-Integer. All six Bucky MRAs retain the
+  correct game controls (`Shoot,Jump,Special`) plus Start/Coin/Core credits;
+  the MRA validator passes.
+- Validation completed: static RTL/source closure, six-MRA convention checks,
+  and standalone SystemVerilog syntax checks.
+  No Verilator, Quartus, RBF generation or MiSTer hardware test was run for this
+  source-only pass.
