@@ -14,6 +14,24 @@ int width = 0;
 int height = 0;
 int frame_skip = 1;
 uint64_t frame_count = 0;
+bool save_requested = false;
+
+void pump_events() {
+    if (!window)
+        return;
+    SDL_Event event;
+    while (SDL_PollEvent(&event)) {
+        // Closing the window is not a simulation stop condition.  Keep the
+        // mandatory visual frontend present for the complete replay.
+        if (event.type == SDL_QUIT)
+            SDL_ShowWindow(window);
+        if (event.type == SDL_KEYDOWN &&
+            (event.key.keysym.sym == SDLK_F5 ||
+             (event.key.keysym.sym == SDLK_s &&
+              (event.key.keysym.mod & KMOD_CTRL))))
+            save_requested = true;
+    }
+}
 }
 
 extern "C" void bucky_sdl_init(int w, int h) {
@@ -53,11 +71,7 @@ extern "C" void bucky_sdl_frame(const svOpenArrayHandle rh,
     const auto *b = static_cast<const unsigned char *>(svGetArrayPtr(bh));
     if (!r || !g || !b)
         return;
-    SDL_Event event;
-    while (SDL_PollEvent(&event)) {
-        if (event.type == SDL_QUIT)
-            SDL_ShowWindow(window);
-    }
+    pump_events();
     // Keep the required visible window alive and responsive, but allow long
     // deterministic replays to present periodically instead of blocking the
     // RTL on a host compositor/vsync for every native arcade frame.  PPM
@@ -85,6 +99,16 @@ extern "C" void bucky_sdl_frame(const svOpenArrayHandle rh,
     SDL_RenderClear(renderer);
     SDL_RenderCopy(renderer, texture, nullptr, &dst_rect);
     SDL_RenderPresent(renderer);
+}
+
+extern "C" void bucky_sdl_pump() {
+    pump_events();
+}
+
+extern "C" int bucky_sdl_take_save_request() {
+    const bool requested = save_requested;
+    save_requested = false;
+    return requested ? 1 : 0;
 }
 
 extern "C" void bucky_sdl_done() {

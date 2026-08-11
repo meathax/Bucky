@@ -9,7 +9,10 @@ mdir="${1:-$root/obj_dir/bucky_parent_full}"
 build_jobs="${VERILATOR_BUILD_JOBS:-0}"
 sim_cpu="${BUCKY_SIM_CPU:-fx68k}"
 sim_fast="${BUCKY_SIM_FAST:-0}"
-sim_full_source="${BUCKY_SIM_FULL_SOURCE:-0}"
+sim_skip_erase="${BUCKY_SIM_SKIP_ERASE:-0}"
+sim_savable="${BUCKY_SIM_SAVABLE:-0}"
+sim_lto="${BUCKY_SIM_LTO:-0}"
+sim_output_split="${BUCKY_SIM_OUTPUT_SPLIT:-20000}"
 
 # MSYS2's login PATH intentionally omits the Windows user-bin directory.  Use
 # the machine-wide guarded launcher by absolute path when command lookup does
@@ -34,7 +37,12 @@ esac
 # immutable and create a checked derived copy containing main.cache_size=8;
 # a normal JTFRAME regeneration emits the same CACHE1_SIZE parameter.
 generated_sdram="$root/.workbench/generated/jtbucky_game_sdram.v"
+prepare_args=()
+if [[ "$sim_skip_erase" == 1 ]]; then
+    prepare_args+=( --skip-ram-erase )
+fi
 python "$root/cores/bucky/tools/prepare_bucky_sdram.py" \
+    "${prepare_args[@]}" \
     "$jtroot/cores/bucky/mister/jtbucky_game_sdram.v" "$generated_sdram"
 
 # The safe Verilator wrapper is a native Windows executable.  Convert all
@@ -91,6 +99,9 @@ sources=(
     "$(native_path "$root/cores/bucky/hdl/sim/tb_bucky_parent.sv")"
     "$(native_path "$root/cores/bucky/hdl/sim/sim_sdl.cpp")"
 )
+if [[ "$sim_savable" == 1 ]]; then
+    sources+=("$(native_path "$root/cores/bucky/hdl/sim/sim_savable.cpp")")
+fi
 for source in "${qip_sources[@]}"; do
     sources+=("$(native_path "$source")")
 done
@@ -120,13 +131,6 @@ defs=(
 if [[ "$sim_fast" == 1 ]]; then
     defs+=( --x-assign fast --x-initial fast --noassert -DBUCKY_FAST_SIM )
 fi
-if [[ "$sim_full_source" == 1 ]]; then
-    # Exploratory only: mirror the complete GX173 object-source window so
-    # CPU metadata reads and K053246 DMA can be compared without changing the
-    # production compact RAM path.
-    defs+=( -DBUCKY_SIM_FULL_SOURCE )
-fi
-
 # Match the production core by default: without JTFRAME_J68, jtframe_m68k
 # instantiates fx68k.  J68 is useful for targeted diagnostics but must not be
 # the acceptance CPU because an implementation-specific exception can be
@@ -135,6 +139,9 @@ case "$sim_cpu" in
     fx68k) ;;
     j68) defs+=( -DJTFRAME_J68 ) ;;
 esac
+if [[ "$sim_savable" == 1 ]]; then
+    defs+=( -DBUCKY_EXTERNAL_CLOCK )
+fi
 
 includes=(
     "-I$(native_path "$root/.workbench/upstream/jtcores/modules/jtframe/hdl/inc")"
@@ -144,14 +151,28 @@ includes=(
     "-I$(native_path 'C:/Users/meath/AppData/Local/Temp/bucky-j68-elab')"
 )
 
-# Verilator 5.050 rejects --savable together with this event/timing bench.
-# Keep the strict single-threaded correctness model until the bench moves to
-# an untimed C++ clock driver with VerilatedSave/VerilatedRestore support.
 # Verilator appends its default -Os after user CFLAGS.  Repeat -O3 last so
 # the generated model keeps native optimizer speed during long replays.
-"$safe_verilator" --binary --timing --threads 1 -O3 -Wno-fatal \
-    --top-module tb_bucky_parent --Mdir "$(native_path "$mdir")" --build -j "$build_jobs" \
-    --output-split 20000 \
-    -CFLAGS '-O3 -march=native -D_GLIBCXX_USE_CXX11_ABI=0 -IC:/msys64/ucrt64/include/SDL2 -O3' \
-    -LDFLAGS '-LC:/msys64/ucrt64/lib -lSDL2' \
-    "${defs[@]}" "${includes[@]}" "${sources[@]}"
+sim_cflags='-O3 -march=native -D_GLIBCXX_USE_CXX11_ABI=0 -IC:/msys64/ucrt64/include/SDL2 -O3'
+sim_ldflags='-LC:/msys64/ucrt64/lib -lSDL2'
+if [[ "$sim_lto" == 1 ]]; then
+    sim_cflags+=' -flto'
+    sim_ldflags+=' -flto'
+fi
+common_args=(
+    --threads 1 -O3 -Wno-fatal
+    --top-module tb_bucky_parent --Mdir "$(native_path "$mdir")" --build -j "$build_jobs"
+    --output-split "$sim_output_split"
+    -CFLAGS "$sim_cflags"
+    -LDFLAGS "$sim_ldflags"
+)
+if [[ "$sim_savable" == 1 ]]; then
+    # Externally driven clocks remove the event scheduler and make complete
+    # VerilatedSave checkpoints legal.  Assertions and strict X behavior stay
+    # enabled; this is a correctness model, not the exploratory fast variant.
+    "$safe_verilator" --cc --exe --savable \
+        "${common_args[@]}" "${defs[@]}" "${includes[@]}" "${sources[@]}"
+else
+    "$safe_verilator" --binary --timing \
+        "${common_args[@]}" "${defs[@]}" "${includes[@]}" "${sources[@]}"
+fi

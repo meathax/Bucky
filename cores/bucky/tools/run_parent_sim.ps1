@@ -10,6 +10,8 @@ param(
 	[switch] $PaletteDiagnostics,
 	[switch] $FrameStateDiagnostics,
 	[switch] $SoundDiagnostics,
+	[switch] $AudioOnly,
+	[switch] $AudioFmOnly,
 	[switch] $Z80Diagnostics,
 	[switch] $PostDiagnostics,
 	[switch] $PostDiagnosticsStop,
@@ -34,24 +36,55 @@ param(
 	[switch] $InputDiagnostics,
 	[switch] $GameplayDiagnostics,
 	[switch] $ObjectDiagnostics,
+	[switch] $ObjectTargetDiagnostics,
 	[switch] $ObjectBusDiagnostics,
 	[switch] $ObjectReadDiagnostics,
+	[switch] $HostBusDiagnostics,
 	[switch] $ProtectionDiagnostics,
 	[switch] $RequireAttract,
 	[switch] $RequireGameplay,
+	[switch] $RequireInLevel,
 	[switch] $RequireNoException,
 	[string] $PpmFile = '',
 	[int] $PpmFrame = 0,
+	[int] $InLevelFrame = 1400,
+	[string] $PpmPrefix = '',
+	[int] $PpmStart = 600,
+	[int] $PpmEnd = 1400,
+	[int] $PpmPeriod = 100,
 	[string] $VramDumpFile = '',
 	[int] $VramDumpFrame = 0,
 	[string] $ObjDumpFile = '',
 	[int] $ObjDumpFrame = 0,
 	[string] $LogFile = '',
 	[string] $MilestoneFile = '',
+	[string] $SaveState = '',
+	[int] $AutoSaveFrame = 1,
+	[string] $RestoreState = '',
+	[string] $AudioFile = '',
+	[int] $AudioStartFrame = -1,
+	[int] $AudioEndFrame = -1,
 	[uint32] $Dipsw = 0x00a00000
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Get-Sha256Hex([string] $Path) {
+	# Background validation also runs under the inbox Windows PowerShell host,
+	# whose minimal module path may not auto-load Get-FileHash.  Use the .NET
+	# primitive directly so the immutable ROM lock is enforced in every host.
+	$stream = [IO.File]::OpenRead($Path)
+	try {
+		$sha = [Security.Cryptography.SHA256]::Create()
+		try {
+			return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToLowerInvariant()
+		} finally {
+			$sha.Dispose()
+		}
+	} finally {
+		$stream.Dispose()
+	}
+}
 
 # JTFRAME's J68 simulation ROMs are intentionally external to the public core
 # tree.  Stage the GPL source tables beside the executable so $readmemb() is
@@ -80,7 +113,7 @@ if ($manifest.set -ne 'bucky' -or
 }
 foreach ($name in $requiredRomFiles) {
 	$expected = $manifest.files.$name.sha256
-	$actual = (Get-FileHash -LiteralPath (Join-Path $rom $name) -Algorithm SHA256).Hash.ToLowerInvariant()
+	$actual = Get-Sha256Hex (Join-Path $rom $name)
 	if ([string]::IsNullOrWhiteSpace($expected) -or $actual -ne $expected) {
 		throw "Parent simulation image hash mismatch: $name"
 	}
@@ -154,6 +187,8 @@ if ($PixelDiagnostics) { $plus += '+PIXDIAG' }
 if ($PaletteDiagnostics) { $plus += '+PALDIAG' }
 if ($FrameStateDiagnostics) { $plus += '+FRAMESTATE' }
 if ($SoundDiagnostics) { $plus += '+SOUND_DIAG' }
+if ($AudioOnly) { $plus += '+AUDIO_ONLY' }
+if ($AudioFmOnly) { $plus += '+AUDIO_FM_ONLY' }
 if ($Z80Diagnostics) { $plus += '+Z80_DIAG' }
 if ($PostDiagnostics) { $plus += '+POST_DIAG' }
 if ($PostDiagnosticsStop) { $plus += '+POST_DIAG_STOP' }
@@ -179,15 +214,27 @@ if ($CoinFrame -ge 0 -or $Coin2Frame -ge 0 -or $StartFrame -ge 0 -or $Button1Fra
 if ($InputDiagnostics) { $plus += '+INPUT_DIAG' }
 if ($GameplayDiagnostics) { $plus += '+GAMEPLAY_DIAG' }
 if ($ObjectDiagnostics) { $plus += '+OBJ_DIAG' }
+if ($ObjectTargetDiagnostics) { $plus += '+OBJ_TARGET_DIAG' }
 if ($ObjectBusDiagnostics) { $plus += '+OBJ_BUS_DIAG' }
 if ($ObjectReadDiagnostics) { $plus += '+OBJ_READ_DIAG' }
+if ($HostBusDiagnostics) { $plus += '+HOST_BUS_DIAG' }
 if ($ProtectionDiagnostics) { $plus += '+PROT_DIAG' }
 if ($RequireAttract) { $plus += '+REQUIRE_ATTRACT' }
 if ($RequireGameplay) { $plus += '+REQUIRE_GAMEPLAY' }
+if ($RequireInLevel) {
+	$plus += '+REQUIRE_INLEVEL'
+	$plus += "+INLEVEL_FRAME=$InLevelFrame"
+}
 if ($RequireNoException) { $plus += '+REQUIRE_NO_EXCEPTION' }
 if (-not [string]::IsNullOrWhiteSpace($PpmFile)) {
 	$plus += "+PPM_FILE=$([IO.Path]::GetFullPath($PpmFile))"
 	$plus += "+PPM_FRAME=$PpmFrame"
+}
+if (-not [string]::IsNullOrWhiteSpace($PpmPrefix)) {
+	$plus += "+PPM_PREFIX=$([IO.Path]::GetFullPath($PpmPrefix))"
+	$plus += "+PPM_START=$PpmStart"
+	$plus += "+PPM_END=$PpmEnd"
+	$plus += "+PPM_PERIOD=$PpmPeriod"
 }
 if (-not [string]::IsNullOrWhiteSpace($VramDumpFile)) {
 	$plus += "+VRAM_DUMP_FILE=$([IO.Path]::GetFullPath($VramDumpFile))"
@@ -199,6 +246,22 @@ if (-not [string]::IsNullOrWhiteSpace($ObjDumpFile)) {
 }
 if (-not [string]::IsNullOrWhiteSpace($MilestoneFile)) {
 	$plus += "+MILESTONE_FILE=$([IO.Path]::GetFullPath($MilestoneFile))"
+}
+if (-not [string]::IsNullOrWhiteSpace($SaveState)) {
+	$plus += "+SAVE_STATE=$([IO.Path]::GetFullPath($SaveState))"
+	$plus += "+AUTO_SAVE_FRAME=$AutoSaveFrame"
+}
+if (-not [string]::IsNullOrWhiteSpace($RestoreState)) {
+	$restore = [IO.Path]::GetFullPath($RestoreState)
+	if (-not (Test-Path -LiteralPath $restore -PathType Leaf)) {
+		throw "Missing Verilator checkpoint: $restore"
+	}
+	$plus += "+RESTORE_STATE=$restore"
+}
+if (-not [string]::IsNullOrWhiteSpace($AudioFile)) {
+	$plus += "+AUDIO_FILE=$([IO.Path]::GetFullPath($AudioFile))"
+	$plus += "+AUDIO_START_FRAME=$AudioStartFrame"
+	$plus += "+AUDIO_END_FRAME=$AudioEndFrame"
 }
 
 $previousPath = $env:PATH
@@ -221,10 +284,23 @@ try {
 	$env:PATH = $previousPath
 }
 
-if (-not (Test-Path -LiteralPath $result) -or
-	(Get-Content -LiteralPath $result -Raw).Trim() -ne 'PASS') {
+${resultPassed} = (Test-Path -LiteralPath $result) -and
+	((Get-Content -LiteralPath $result -Raw).Trim() -eq 'PASS')
+# A restored Verilated model necessarily carries its serialized SystemVerilog
+# packed strings, including the original RESULT_FILE/TRACE_FILE paths.  The
+# host wrapper cannot replace those without changing model state.  For a
+# restore only, accept the testbench's exact stdout PASS marker from the
+# declared log; ordinary reset runs still require the fresh result artifact.
+${restoredLogPassed} = -not [string]::IsNullOrWhiteSpace($RestoreState) -and
+	-not [string]::IsNullOrWhiteSpace($LogFile) -and
+	(Test-Path -LiteralPath ([IO.Path]::GetFullPath($LogFile))) -and
+	[bool](Select-String -LiteralPath ([IO.Path]::GetFullPath($LogFile)) `
+		-Pattern '^PASS tb_bucky_parent frames=' -Quiet)
+if (-not $resultPassed -and -not $restoredLogPassed) {
 	throw 'Parent simulation ended without the testbench PASS marker'
 }
 
-if (-not (Test-Path -LiteralPath $trace)) { throw "Trace was not written: $trace" }
+if ([string]::IsNullOrWhiteSpace($RestoreState) -and -not (Test-Path -LiteralPath $trace)) {
+	throw "Trace was not written: $trace"
+}
 Write-Output "PASS: parent simulation completed; trace=$trace"

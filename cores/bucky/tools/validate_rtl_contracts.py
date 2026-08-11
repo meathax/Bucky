@@ -144,21 +144,22 @@ def main() -> int:
             "k053247_buffer.v")
     require(r"if\( rst \).*dly\s*<=.*rd_data\s*<=", buffer_text, "k053247_buffer.v")
 
-    # GX173 keeps a full CPU-visible sprite-source table, while the K053247
-    # draw store is compacted to eight words per 0x80-word slot.  DMA must use
-    # the translated source-table read port, not the CPU alias, so pointer and
-    # metadata writes remain visible to the real object walk.
-    game_text = (hdl / "jtbucky_game.v").read_text(encoding="utf-8")
-    require(r"obj_src_mem\s*\[0:32767\]", game_text, "jtbucky_game.v")
-    require(r"obj_dma_mem\s*\[0:2047\]", game_text, "jtbucky_game.v")
-    require(r"obj_src_mem\[obj_cpu_addr\[14:0\]\]", game_text, "jtbucky_game.v")
-    require(r"obj_dma_src_q\s*<=\s*obj_dma_mem\[\{obj_dma_src_addr\[14:7\],obj_dma_src_addr\[2:0\]\}\]", game_text,
-            "jtbucky_game.v")
+    # GX173 keeps one full CPU-visible 64 KiB sprite-source RAM.  K053246 DMA
+    # reads only words 0..7 from each 0x80-word slot through the RAM's second
+    # registered port; metadata addresses must never alias onto draw words.
+    video_text = (hdl / "bucky_video.v").read_text(encoding="utf-8")
+    require(r"cowboys_obj\s*#\s*\(\s*\.RAMW\(15\)", video_text, "bucky_video.v")
+    require(r"assign\s+orama\s*=\s*obj_cpu_addr\[14:0\]", video_text, "bucky_video.v")
+    require(r"assign\s+orama_we\s*=\s*oram_we\s*&\s*\{2\{objsys_cs\}\}", video_text,
+            "bucky_video.v")
     obj_text = (hdl / "cowboys_obj.v").read_text(encoding="utf-8")
-    require(r"output\s+\[14:0\]\s+dma_src_addr", obj_text, "cowboys_obj.v")
-    require(r"\.dma_data\s*\(\s*dma_src_data\s*\)", obj_text, "cowboys_obj.v")
+    require(r"\.dma_data\s*\(\s*dma_source_data\s*\)", obj_text, "cowboys_obj.v")
+    require(r"\.addr1a\s*\(\s*dma_src_addr\[RAMW-1:0\]\s*\)", obj_text,
+            "cowboys_obj.v")
     require(r"assign\s+dma_src_addr\s*=\s*\{dma_addr\[11:4\],7'd0\}", obj_text,
             "cowboys_obj.v")
+    require(r"assign\s+dma_source_data\s*=\s*dma_addr\[12\]\s*\?\s*16'h0000\s*:\s*ram_dma_data",
+            obj_text, "cowboys_obj.v")
 
     mame_text = args.mame.read_text(encoding="utf-8")
     bucky_start = mame_text.index("void moo_prot_state::bucky_map")

@@ -42,15 +42,13 @@ module bucky_video(
     output            tile_irqn,
     output            tile_nmin,
 
-    // Object DMA
+    // Object source RAM
     input      [13:1] oram_addr,
     input      [ 1:0] oram_we,
     // Word offset within Bucky's 0x090000-0x09ffff sprite source RAM.
     // main_addr carries the 68000 A1.. bus bits; the absolute base address
-    // must not leak into the compact K053247 object RAM address.
+    // must not leak into this relative 64 KiB RAM address.
     input      [15:0] obj_cpu_addr,
-    output     [14:0] dma_src_addr,
-    input      [15:0] dma_src_data,
     // CPU interface
     input      [16:1] cpu_addr,
     input      [ 1:0] cpu_dsn,
@@ -123,14 +121,13 @@ wire [ 7:0] lyrf_pxl, lyra_pxl, lyrb_pxl, lyrc_pxl, dump_obj, obj_mmr;
 wire [ 1:0] lyra_mix, lyrb_mix, lyrc_mix;   // flag de mezcla por tile (attr[2]) - ses.24
 wire [ 4:0] lyro_pri;
 wire [ 1:0] shadow;
-wire [ 3:0] obj_amsb = 4'd0;   // Release debug dump is disabled; the runtime sprite path uses the full 8MB ROM bus.
 wire [15:0] tile_din;
 wire [18:0] rom_addr;
 wire [ 1:0] rom_lyr;
 wire        rom_cs, cpu_weg;
 wire        tile_rom_ok;
 wire [ 3:0] ommra;
-wire [13:1] orama;
+wire [15:1] orama;
 wire [ 1:0] orama_we;
 
 assign cpu_weg     = cpu_we && cpu_dsn!=2'b11;
@@ -225,30 +222,14 @@ assign tile_irqn = 1'b1;   // Bucky map has no K056832 IRQ window; IRQ4 comes fr
 /* verilator tracing_on */
 assign ommra = {cpu_addr[3:1],cpu_dsn[1]};
 
-// MODELO DE OBJRAM (sesion 13). Bucky reparte 256 slots de sprite con paso 0x100 sobre los 64 kB de
-// 0x190000 (moo.cpp:416 `object_dma`: `src += 0x80` words, y solo las 8 primeras words de cada slot
-// importan). El K053246 escanea su RAM externa con paso 8 words (`k053246_dma.v:126-137`: lee [3:1]=0..6
-// y salta al siguiente bloque de 16 B). Son DOS espacios de direcciones distintos, y la conversion entre
-// ambos es exactamente `slot N word w:  juego = N*0x80+w   <->  chip = N*8+w`.
-// ⭐ ESTO NO ES UNA HIPOTESIS: es lo que `ver/cowboys/tb_vfull.cpp:90-92` lleva 8 sesiones haciendo en C++
-// sobre el dump del oraculo (`src=N*0x80+w` -> `dst=N*8+w`) para dar `vfull 1800` = 0.0000% pixel-exacto.
-// El tb hacia la conversion FUERA del RTL, asi que el core real se quedo sin ella.
-//   juego (word) = {N[7:0], 4'd0, w[2:0]} = obj_cpu_addr[15:0]
-// Las words con obj_cpu_addr[6:3]!=0 NO pertenecen a ninguna entrada: no se escriben (si se escribieran,
-// aliasearian sobre la word 0 del slot y machacarian el bit de activo).
-// El test de sprite RAM del POST (0x4a18e) SIGUE PASANDO: escribe y RELEE cada long EN EL ACTO con
-// patrones UNIFORMES (0 / 0xffffff), asi que la word aliaseada ya contiene ese mismo patron. (Es la misma
-// razon por la que pasaba con el aliasing 4:1 de antes — ese test no prueba NADA sobre el layout: §sesion 12.)
-// El DMA del core recibe ahora la tabla fuente completa por `dma_src_addr/data` en cowboys_obj,
-// y conserva la conversion N*0x80+w -> N*8+w en el propio puerto del custom.  La ordenacion por
-// prioridad sigue siendo la LUT del K053246 (`dma_bufa <= {sort_24x,3'd0}`), como en el silicio.
-// RAMW=13 -> el DMA barre words 0..4095 (entradas 0..511); las 256..511 nunca se escriben => 0 => bit15=0
-// => descartadas. Por eso RAMW se queda en 13 y no hace falta RAM extra.
-// The CPU window is word-addressed relative to 0x090000.  Its 0x80-word
-// source slots carry the slot number in bits [14:7]; K053247 stores only the
-// first eight words of each slot, so compact the slot number with [2:0].
-assign orama    = { 2'd0, obj_cpu_addr[14:7], obj_cpu_addr[2:0] };
-assign orama_we = oram_we & {2{objsys_cs && obj_cpu_addr[6:3]==4'd0}};
+// GX173 has a CPU-visible 0x10000-byte source RAM at 0x090000.  Each of its
+// 256 object slots is 0x80 words: words 0..7 feed K053246 DMA while the rest
+// hold live game metadata.  Compacting the CPU address aliases metadata reads
+// onto draw words (for example MAME frame 516 reads 0 at 0x091424 while the
+// compact path returned sprite code 0x3900).  Preserve the complete source
+// address here; cowboys_obj translates only the DMA port to slot*0x80+word.
+assign orama    = obj_cpu_addr[14:0];
+assign orama_we = oram_we & {2{objsys_cs}};
 
 // SONDA (sesion 12): saca el `cfg` REAL de dentro de `k053246_mmr` sin tocar nada compartido.
 // `cowboys_obj` -> `st_addr = ioctl_ram ? ioctl_addr : debug_bus` y `k053246_mmr: 5: st_dout <= cfg`,
@@ -275,6 +256,18 @@ always @(posedge clk) if (`BUCKY_TEST_PLUSARGS("OBJ_DIAG") && objsys_cs && cpu_w
     $display("OBJ_SRC_WR n=%0d cpu_addr=%04x obj_off=%04x orama=%04x dsn=%b data=%04x we=%b",
         obj_src_diag_count, cpu_addr, obj_cpu_addr, orama, cpu_dsn, cpu_dout, orama_we);
     obj_src_diag_count <= obj_src_diag_count + 1;
+end
+// Focused, counter-free probe for the first live gameplay object metadata.
+// Keep this behind a runtime plusarg: it adds no state and is absent from
+// production behaviour.
+always @(posedge clk) if (`BUCKY_TEST_PLUSARGS("OBJ_TARGET_DIAG") && objsys_cs && cpu_we &&
+                         (|orama_we) &&
+                         (obj_cpu_addr[14:0] == 15'h0a10 ||
+                          obj_cpu_addr[14:0] == 15'h0a12 ||
+                          obj_cpu_addr[14:0] == 15'h0a13 ||
+                          obj_cpu_addr[14:0] == 15'h0a16)) begin
+    $display("OBJ_TARGET_WR time=%0t cpu_addr=%04x obj_off=%04x orama=%04x dsn=%b data=%04x we=%b",
+        $time, cpu_addr, obj_cpu_addr, orama, cpu_dsn, cpu_dout, orama_we);
 end
 always @(posedge clk) if (`BUCKY_TEST_PLUSARGS("OBJ_DIAG") && objsys_cs && cpu_we &&
                          obj_cpu_addr[14:7] >= 8'h40 && obj_cpu_addr[6:3] == 4'd0 &&
@@ -358,7 +351,7 @@ localparam [8:0] OBJ_HOFF=9'd149;
 // convivia con el DMA real muerto: el tb NO puede ver este bug — el C-06 de la sesion 12.)
 localparam EDGE_TRIGGER = `ifndef NOMAIN 1 `else 0 `endif;
 
-cowboys_obj #(.RAMW(13),.SHADOW(1),.EDGE_TRIGGER(EDGE_TRIGGER)) u_obj(   // FORK PROPIO (ses.24)
+cowboys_obj #(.RAMW(15),.SHADOW(1),.EDGE_TRIGGER(EDGE_TRIGGER)) u_obj(   // 64 KiB GX173 source RAM
     .rst        ( rst       ),
     .clk        ( clk       ),
     .pxl_cen    ( pxl_cen   ),
@@ -377,8 +370,6 @@ cowboys_obj #(.RAMW(13),.SHADOW(1),.EDGE_TRIGGER(EDGE_TRIGGER)) u_obj(   // FORK
     .ram_din    ( cpu_dout  ),
     .ram_we     ( orama_we  ),
     .cpu_din    (objsys_dout),
-    .dma_src_addr( dma_src_addr ),
-    .dma_src_data( dma_src_data ),
 
     .reg_cs     ( objreg_cs ),
     .mmr_addr   ( ommra     ),
@@ -399,7 +390,7 @@ cowboys_obj #(.RAMW(13),.SHADOW(1),.EDGE_TRIGGER(EDGE_TRIGGER)) u_obj(   // FORK
     .prio       ( lyro_pri  ),
     // Debug
     .ioctl_ram  ( ioctl_ram ),
-    .ioctl_addr ( {obj_amsb[1:0],ioctl_addr[11:0]} ),
+    .ioctl_addr ( ioctl_addr ),
     .dump_ram   ( dump_obj  ),
     .dump_reg   ( obj_mmr   ),
     .gfx_en     ( gfx_en    ),

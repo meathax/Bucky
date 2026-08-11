@@ -4,9 +4,18 @@
 // ROM images are supplied with +MAIN_HEX=, +SND_HEX=, +TILE_HEX=,
 // +SPRITE_HEX=, +PCM_HEX= and +NVRAM_HEX= at run time; no copyrighted ROM
 // data belongs in the repository.
-module tb_bucky_parent;
+module tb_bucky_parent(
+`ifdef BUCKY_EXTERNAL_CLOCK
+    input  wire        clk,
+    input  wire        clk24,
+    input  wire        clk48,
+    input  wire        clk96,
+    output wire [31:0] sim_frames
+`endif
+);
     import "DPI-C" function void bucky_sdl_init(input int width, input int height);
     import "DPI-C" function void bucky_sdl_frame(input byte unsigned red[], input byte unsigned green[], input byte unsigned blue[], input int width, input int height);
+    import "DPI-C" function void bucky_sdl_pump();
     import "DPI-C" function void bucky_sdl_done();
     localparam integer MAIN_WORDS = 1179648; // 0x240000 bytes / 2
     localparam integer SND_BYTES  = 262144;  // 0x40000 bytes
@@ -16,8 +25,12 @@ module tb_bucky_parent;
     localparam [21:0]  PCM_OFFSET_WORD = 22'h020000;
     localparam [21:0]  RAM_OFFSET_WORD = 22'h140000;
 
+`ifdef BUCKY_EXTERNAL_CLOCK
+    reg rst=1, rst24=1, rst48=1, rst96=1;
+`else
     reg rst=1, clk=0, rst24=1, clk24=0, rst48=1, clk48=0,
         rst96=1, clk96=0;
+`endif
     reg pxl2_cen=0, pxl_cen=0;
     // JTFRAME presents cabinet inputs to the game as active-low signals.  A
     // released control is therefore all ones; zero is a pressed input.  The
@@ -102,6 +115,17 @@ module tb_bucky_parent;
     integer vram_dump_frame;
     reg [8*256-1:0] vram_dump_file;
     integer vram_dump_fd;
+    reg audio_only;
+    reg audio_fm_only;
+    // Optional final-mix capture for game-level MAME waveform comparison.
+    // This is simulation-only observability: it does not touch the RTL audio
+    // path or change the synthesizable parent design.
+    reg [8*256-1:0] audio_path;
+    integer audio_fd;
+    integer audio_samples;
+    integer audio_start_frame;
+    integer audio_end_frame;
+    reg audio_enabled;
     integer i;
 
     initial begin
@@ -109,6 +133,22 @@ module tb_bucky_parent;
         result_fd = 0;
         milestone_file = 0;
         milestone_fd = 0;
+        audio_path = 0;
+        audio_fd = 0;
+        audio_samples = 0;
+        audio_start_frame = -1;
+        audio_end_frame = -1;
+        audio_enabled = 1'b0;
+        audio_only = $test$plusargs("AUDIO_ONLY");
+        audio_fm_only = $test$plusargs("AUDIO_FM_ONLY");
+        if ($value$plusargs("AUDIO_FILE=%s", audio_path)) begin
+            audio_fd = $fopen(audio_path, "w");
+            if (audio_fd == 0) $fatal(1, "cannot open AUDIO_FILE=%0s", audio_path);
+            audio_enabled = 1'b1;
+            $fwrite(audio_fd, "# sample_rate=192000 channels=2 format=s16le\n");
+        end
+        void'($value$plusargs("AUDIO_START_FRAME=%d", audio_start_frame));
+        void'($value$plusargs("AUDIO_END_FRAME=%d", audio_end_frame));
         vram_dump_diag = $value$plusargs("VRAM_DUMP_FRAME=%d", vram_dump_frame);
         void'($value$plusargs("VRAM_DUMP_FILE=%s", vram_dump_file));
         void'($value$plusargs("RESULT_FILE=%s", result_file));
@@ -125,10 +165,12 @@ module tb_bucky_parent;
 
     // The actual JTFRAME clock domain is 48 MHz.  These ratios preserve the
     // generated clock-enable contracts while keeping the bench deterministic.
+`ifndef BUCKY_EXTERNAL_CLOCK
     always #10 clk   = ~clk;
     always #20 clk24 = ~clk24;
     always #10 clk48 = ~clk48;
     always #5  clk96 = ~clk96;
+`endif
 
     integer pxl_div;
     integer boot_probe;
@@ -159,6 +201,14 @@ module tb_bucky_parent;
     integer ppm_index;
     integer ppm_fd;
     integer ppm_i;
+    reg ppm_written;
+    reg ppm_series_diag;
+    string ppm_series_prefix;
+    string ppm_series_file;
+    integer ppm_series_start;
+    integer ppm_series_end;
+    integer ppm_series_period;
+    reg sdl_hs_l;
 `ifdef BUCKY_FAST_SIM
     // Keep the SDL window alive while reducing host-side framebuffer copies
     // during long exploratory replays.  An explicitly requested PPM target
@@ -176,10 +226,44 @@ module tb_bucky_parent;
         void'($value$plusargs("PPM_FRAME=%d", ppm_frame_target));
         ppm_frame_id = 0;
         ppm_index = 0;
+        ppm_written = 1'b0;
+        ppm_series_diag = $value$plusargs("PPM_PREFIX=%s", ppm_series_prefix);
+        ppm_series_start = 600;
+        ppm_series_end = 1400;
+        ppm_series_period = 100;
+        sdl_hs_l = 1'b0;
+        void'($value$plusargs("PPM_START=%d", ppm_series_start));
+        void'($value$plusargs("PPM_END=%d", ppm_series_end));
+        void'($value$plusargs("PPM_PERIOD=%d", ppm_series_period));
+        if (ppm_series_period < 1) ppm_series_period = 1;
         bucky_sdl_init(384, 224);
     end
+
+    // A native frame can take many wall-clock seconds on a contended host.
+    // Pump SDL at each scanline boundary so Windows never classifies the
+    // required visible frontend as hung while the RTL is still advancing.
+    always @(posedge clk) begin
+        sdl_hs_l <= HS;
+        if (HS && !sdl_hs_l)
+            bucky_sdl_pump();
+    end
     final begin
+        if (audio_fd != 0) $fclose(audio_fd);
         bucky_sdl_done();
+    end
+
+    // jtframe_rcmix runs at 192 kHz (48 MHz / FRACM=250).  Capture after the
+    // clocked mixer update so each row contains the sample just presented on
+    // the final stereo output.  CSV keeps the artifact portable across
+    // the simulator, MAME and the local analysis scripts.
+    always @(posedge sample) begin
+        if (audio_enabled && sample &&
+            (audio_start_frame < 0 || frames >= audio_start_frame) &&
+            (audio_end_frame < 0 || frames <= audio_end_frame)) begin
+            $fwrite(audio_fd, "%0d,%0d,%0d\n", audio_samples,
+                    $signed(snd_left), $signed(snd_right));
+            audio_samples = audio_samples + 1;
+        end
     end
     integer active_pixels;
     integer nonzero_pixels;
@@ -220,8 +304,11 @@ module tb_bucky_parent;
     reg require_attract;
     reg start_accepted;
     reg gameplay_seen;
+    reg inlevel_seen;
     reg require_gameplay;
+    reg require_inlevel;
     reg require_no_exception;
+    integer inlevel_frame_target;
     initial begin
         coin_frame = -1;
         coin2_frame = -1;
@@ -239,8 +326,11 @@ module tb_bucky_parent;
         require_attract = $test$plusargs("REQUIRE_ATTRACT");
         start_accepted = 0;
         gameplay_seen = 0;
+        inlevel_seen = 0;
         require_gameplay = $test$plusargs("REQUIRE_GAMEPLAY");
+        require_inlevel = $test$plusargs("REQUIRE_INLEVEL");
         require_no_exception = $test$plusargs("REQUIRE_NO_EXCEPTION");
+        inlevel_frame_target = 1400;
         void'($value$plusargs("COIN_FRAME=%d", coin_frame));
         void'($value$plusargs("COIN2_FRAME=%d", coin2_frame));
         void'($value$plusargs("START_FRAME=%d", start_frame));
@@ -254,6 +344,7 @@ module tb_bucky_parent;
         void'($value$plusargs("COIN_PULSE=%d", coin_pulse));
         void'($value$plusargs("START_PULSE=%d", start_pulse));
         void'($value$plusargs("BUTTON1_PULSE=%d", button1_pulse));
+        void'($value$plusargs("INLEVEL_FRAME=%d", inlevel_frame_target));
         if (coin_pulse < 1) coin_pulse = input_pulse;
         if (start_pulse < 1) start_pulse = input_pulse;
         if (button1_pulse < 1) button1_pulse = input_pulse;
@@ -475,9 +566,10 @@ module tb_bucky_parent;
 
     initial begin
         for (i=0; i<131072; i=i+1) ram_mem[i] = 16'h0000;
-        for (i=0; i<TILE_BYTES/4; i=i+1) tile_mem[i] = 32'h00000000;
-        for (i=0; i<SPR_BYTES/4; i=i+1) sprite_mem[i] = 32'h00000000;
-        for (i=0; i<PCM_BYTES; i=i+1) pcm_mem[i] = 8'h00;
+        // The locked parent images cover every element of these large ROM
+        // arrays.  Avoid millions of redundant zero assignments before
+        // $readmemh; this is simulation-only setup and does not change the
+        // loaded ROM contents or the synthesizable core.
         for (i=0; i<128; i=i+1) nvram_mem[i] = 8'hff;
         if ($value$plusargs("MAIN_HEX=%s", main_hex)) begin
             $display("[TB] loading %0s", main_hex);
@@ -488,25 +580,54 @@ module tb_bucky_parent;
             $readmemh(snd_hex, snd_mem);
         end
         if ($value$plusargs("TILE_HEX=%s", tile_hex)) begin
-            $display("[TB] loading %0s", tile_hex);
-            $readmemh(tile_hex, tile_mem);
+            if (audio_only)
+                $display("[TB] AUDIO_ONLY skipping tile ROM %0s", tile_hex);
+            else begin
+                $display("[TB] loading %0s", tile_hex);
+                $readmemh(tile_hex, tile_mem);
+            end
         end
         if ($value$plusargs("SPRITE_HEX=%s", sprite_hex)) begin
-            $display("[TB] loading %0s", sprite_hex);
-            $readmemh(sprite_hex, sprite_mem);
+            if (audio_only)
+                $display("[TB] AUDIO_ONLY skipping sprite ROM %0s", sprite_hex);
+            else begin
+                $display("[TB] loading %0s", sprite_hex);
+                $readmemh(sprite_hex, sprite_mem);
+            end
         end
         if ($value$plusargs("PCM_HEX=%s", pcm_hex)) begin
-            $display("[TB] loading %0s", pcm_hex);
-            $readmemh(pcm_hex, pcm_mem);
+            if (audio_fm_only)
+                $display("[TB] AUDIO_FM_ONLY skipping PCM ROM %0s", pcm_hex);
+            else begin
+                $display("[TB] loading %0s", pcm_hex);
+                $readmemh(pcm_hex, pcm_mem);
+            end
         end
         if ($value$plusargs("NVRAM_HEX=%s", nvram_hex)) begin
             $display("[TB] loading %0s", nvram_hex);
             $readmemh(nvram_hex, nvram_mem);
         end
         void'($value$plusargs("DIPSW=%h", dipsw));
+`ifndef BUCKY_EXTERNAL_CLOCK
         repeat (10) @(posedge clk);
         rst=0; rst24=0; rst48=0; rst96=0;
+`endif
     end
+
+`ifdef BUCKY_EXTERNAL_CLOCK
+    integer reset_edge_count = 0;
+    always @(posedge clk) begin
+        if (reset_edge_count < 10) begin
+            reset_edge_count <= reset_edge_count + 1;
+            if (reset_edge_count == 9) begin
+                rst   <= 1'b0;
+                rst24 <= 1'b0;
+                rst48 <= 1'b0;
+                rst96 <= 1'b0;
+            end
+        end
+    end
+`endif
 
     // Behavioral SDRAM model for the generated JTFRAME wrapper.  The wrapper
     // exposes only the shared bank requests (ba_rd/ba_wr plus the two-beat
@@ -785,7 +906,10 @@ module tb_bucky_parent;
                 // made long gameplay replays dominated by diagnostics while
                 // leaving the displayed/captured pixels unchanged.
                 if ((ppm_frame_id % SDL_CAPTURE_DIV) == 0 ||
-                    (ppm_diag && ppm_frame_id == ppm_frame_target)) begin
+                    (ppm_diag && ppm_frame_id == ppm_frame_target) ||
+                    (ppm_series_diag && ppm_frame_id >= ppm_series_start &&
+                     ppm_frame_id <= ppm_series_end &&
+                     ((ppm_frame_id - ppm_series_start) % ppm_series_period) == 0)) begin
                     if (ppm_index < 384*224) begin
                         ppm_r[ppm_index] <= red;
                         ppm_g[ppm_index] <= green;
@@ -808,7 +932,23 @@ module tb_bucky_parent;
                     for (ppm_i = 0; ppm_i < 384*224; ppm_i = ppm_i + 1)
                         $fwrite(ppm_fd, "%c%c%c", ppm_r[ppm_i], ppm_g[ppm_i], ppm_b[ppm_i]);
                     $fclose(ppm_fd);
+                    ppm_written <= 1'b1;
                     $display("[PPM] frame=%0d file=%0s", ppm_frame_id, ppm_path);
+                end
+                if (ppm_series_diag && ppm_frame_id >= ppm_series_start &&
+                    ppm_frame_id <= ppm_series_end &&
+                    ((ppm_frame_id - ppm_series_start) % ppm_series_period) == 0 &&
+                    ppm_index >= 384*224) begin
+                    ppm_series_file = $sformatf("%0s-frame%0d.ppm",
+                                                ppm_series_prefix, ppm_frame_id);
+                    ppm_fd = $fopen(ppm_series_file, "wb");
+                    if (ppm_fd == 0)
+                        $fatal(1, "cannot open series PPM %0s", ppm_series_file);
+                    $fwrite(ppm_fd, "P6\n384 224\n255\n");
+                    for (ppm_i = 0; ppm_i < 384*224; ppm_i = ppm_i + 1)
+                        $fwrite(ppm_fd, "%c%c%c", ppm_r[ppm_i], ppm_g[ppm_i], ppm_b[ppm_i]);
+                    $fclose(ppm_fd);
+                    $display("[PPM_SERIES] frame=%0d file=%0s", ppm_frame_id, ppm_series_file);
                 end
                 ppm_frame_id <= ppm_frame_id + 1;
                 ppm_index <= 0;
@@ -1008,12 +1148,32 @@ module tb_bucky_parent;
                 $fclose(milestone_fd);
             end
         end
+        // The worker dispatch above occurs hundreds of frames before control
+        // is handed to the player.  Require a separately declared, visually
+        // verified frame barrier for full gameplay acceptance.  Frame 1400 is
+        // the pinned MAME 0.289 live-combat scene for this input journal; the
+        // raw PPM comparison remains the pixel-accuracy verdict.
+        if (!rst && !inlevel_seen && start_accepted && gameplay_seen &&
+            frames >= inlevel_frame_target && inlevel_frame_target >= 1200) begin
+            inlevel_seen = 1;
+            $display("[INLEVEL] frame=%0d pc=%06x target=%0d",
+                     frames, main_pc_debug, inlevel_frame_target);
+            if (milestone_file != 0) begin
+                milestone_fd = $fopen(milestone_file, "a");
+                $fwrite(milestone_fd, "INLEVEL frame=%0d pc=%06x target=%0d\n",
+                        frames, main_pc_debug, inlevel_frame_target);
+                $fclose(milestone_fd);
+            end
+        end
     end
 
     jtbucky_game_sdram dut(.*);
 
     reg lvbl_d;
     integer frames, max_frames, max_cycles;
+`ifdef BUCKY_EXTERNAL_CLOCK
+    assign sim_frames = frames;
+`endif
     longint unsigned cycles, frame_cycle_limit;
     initial begin
         lvbl_d=1; frames=0; cycles=0; max_frames=3; max_cycles=0;
@@ -1025,8 +1185,13 @@ module tb_bucky_parent;
         // guard point before the board can reach the requested frame.
         frame_cycle_limit = max_frames;
         frame_cycle_limit = frame_cycle_limit * 1000000;
-        forever begin
+    end
+`ifdef BUCKY_EXTERNAL_CLOCK
+    always @(posedge clk) begin
+`else
+    always begin
             @(posedge clk);
+`endif
             cycles = cycles + 1;
             if (!LVBL && lvbl_d) begin
                 frames = frames + 1;
@@ -1088,15 +1253,19 @@ module tb_bucky_parent;
                     if (milestone_file != 0) begin
                         milestone_fd = $fopen(milestone_file, "a");
                         $fwrite(milestone_fd,
-                                "FINAL frame=%0d pc=%06x attract=%0d start=%0d gameplay=%0d mailbox=%04x/%04x\n",
+                                "FINAL frame=%0d pc=%06x attract=%0d start=%0d gameplay=%0d inlevel=%0d ppm=%0d mailbox=%04x/%04x\n",
                                 frames, main_pc_debug, attract_seen, start_accepted,
-                                gameplay_seen, ram_mem[17'h0817f], ram_mem[17'h08180]);
+                                gameplay_seen, inlevel_seen, ppm_written,
+                                ram_mem[17'h0817f], ram_mem[17'h08180]);
                         $fclose(milestone_fd);
                     end
                     if (require_attract && !attract_seen)
                         $fatal(1, "parent MAME-aligned attract milestone 003644 was not reached");
                     if (require_gameplay && !gameplay_seen)
                         $fatal(1, "parent MAME-aligned directed gameplay milestone was not reached");
+                    if (require_inlevel && (!inlevel_seen || !ppm_diag || !ppm_written ||
+                                            ppm_frame_target != inlevel_frame_target))
+                        $fatal(1, "parent did not capture the declared post-cutscene in-level frame");
                     if (require_no_exception && unexpected_vector_seen)
                         $fatal(1, "parent fetched an unexpected exception vector");
                     $display("[TB] final hold=%b erase_bsy=%b erase_cnt=%0d req0=%b sel0=%b wr0=%b ack0=%b sdram_pending=%b",
@@ -1123,6 +1292,5 @@ module tb_bucky_parent;
             if ((max_cycles > 0 && cycles > max_cycles) ||
                 (max_cycles == 0 && cycles > frame_cycle_limit))
                 $fatal(1, "parent integration watchdog expired");
-        end
     end
 endmodule

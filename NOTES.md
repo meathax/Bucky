@@ -245,3 +245,30 @@ K054000/K054338 tests. Real-game accuracy claims begin only after deterministic 
   and standalone SystemVerilog syntax checks.
   No Verilator, Quartus, RBF generation or MiSTer hardware test was run for this
   source-only pass.
+
+## Gameplay-transition first divergence - 2026-08-11
+
+- Locked scenario: MAME 0.289 parent `bucky`, default DIPs, coin held on
+  frames 470-489 and P1 Start held on frames 510-529. The exact Verilator
+  replay reaches the same Start-input reads (`$0da000=$ff7f`) and performs the
+  same initial player-record setup at frame 511.
+- The earliest confirmed data divergence is the byte write at PC `$004566`.
+  MAME writes `$02` to the low byte of work-RAM word `$080944`; Verilator
+  writes `$00`. Disassembly proves this instruction copies global byte
+  `$080062` to player byte `$45(a0)`. The later missing object-selection block
+  is downstream: Verilator consequently reads `$080944=$0200` at PC `$003b2e`
+  where MAME reads `$0202` at PC `$003b2c` and then selects object `$091420`.
+- Do not patch the object renderer or force the player byte. The next causal
+  probe must find why `$080062` is `00` in RTL versus `02` in MAME and repair
+  its producer. `sim_savable.cpp` now includes host-side visibility for
+  `$080050-$080069` without changing serialized RTL state.
+- Preserved exact checkpoints:
+  `.workbench/gameplay-exact/bucky-start-transition.vltsv` at frame 510 and
+  `.workbench/gameplay-exact/bucky-fullschedule-preinput.vltsv` at frame 450.
+  Evidence is in `.workbench/gameplay-exact/host-bus.log` and
+  `mame-player-input517-a/player-watch.log`. Both completed RTL frame-517 runs
+  have explicit testbench PASS markers; this proves deterministic execution,
+  not gameplay/frame equivalence.
+- The diagnostic-only rebuild requested after extending the host probe was
+  stopped before completion at the user's request. No speculative RTL fix,
+  Quartus build, RBF generation, or hardware claim was made.

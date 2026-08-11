@@ -60,7 +60,7 @@
     Date: 24-7-2023 */
 
 module cowboys_obj #(parameter
-    RAMW      = 12, // 12 -> 8kB
+    RAMW      = 15, // GX173 source RAM: 15 address bits -> 64 KiB
     PACKED    = 1,
     SHADOW    = 0,
     K55673    = 0,
@@ -98,12 +98,6 @@ module cowboys_obj #(parameter
     input      [ 1:0] ram_we,
     input    [RAMW:1] ram_addr,
     output     [15:0] cpu_din,
-    // The GX173 source table is a separate 0x10000-byte RAM.  DMA walks the
-    // compact K053247 address space, but the silicon fetches word 0..7 from
-    // the corresponding 0x80-word source slot.  Expose that translated
-    // address so the parent can provide a synchronous source-RAM read port.
-    output     [14:0] dma_src_addr,
-    input      [15:0] dma_src_data,
     output            dma_bsy,
 
     // ROM addressing
@@ -121,7 +115,7 @@ module cowboys_obj #(parameter
     // debug
     input      [ 3:0] gfx_en,
     input             ioctl_ram,
-    input      [13:0] ioctl_addr,
+    input      [15:0] ioctl_addr,
     output     [ 7:0] dump_ram,
     output     [ 7:0] dump_reg,
     input      [ 7:0] debug_bus
@@ -131,10 +125,11 @@ localparam SHADOW_PEN = SHADOW[0]==1 ? 4'd15 : 4'd0;
 
 wire [ 1:0] pre_shd;
 wire [ 3:0] pen_eff;
-wire [15:0] ram_data, ram_dma_data;
+wire [15:0] ram_data, ram_dma_data, dma_source_data;
 wire [22:2] pre_addr;
 wire [22:1] rmrd_addr;
 wire [13:1] dma_addr;
+wire [14:0] dma_src_addr;
 wire [15:0] pre_pxl;
 
 // Draw module
@@ -208,14 +203,7 @@ k053246 #(
 
     // External RAM
     .dma_addr   ( dma_addr  ), // up to 16 kB
-`ifdef BUCKY_SIM_FULL_SOURCE
-    .dma_data   ( dma_src_data  ),
-`else
-    // Keep the compact dual-port source RAM as the default simulation path.
-    // The expanded source-table port is an opt-in differential aid because
-    // replacing the board RAM read contract changes CPU timing.
-    .dma_data   ( ram_dma_data  ),
-`endif
+    .dma_data   ( dma_source_data ),
     .dma_bsy    ( dma_bsy   ),
 
     // ROM addressing 22 bits in total
@@ -307,10 +295,10 @@ jtframe_dual_nvram16 #(
     .q0     ( ram_data  ),
     // Port 1 - Video access
     .clk1   ( clk       ),
-    // The compact port remains available for CPU/IOCTL inspection.  Runtime
-    // DMA uses the translated full source-table port above, so this registered
-    // alias is intentionally not part of the sprite fetch timing.
-    .addr1a ( dma_addr[RAMW:1] ),
+    // K053246 walks a compact eight-word list, but the GX173 source slots are
+    // 0x80 words apart.  Translate only this registered DMA read port; CPU
+    // reads and writes retain the complete 64 KiB source address.
+    .addr1a ( dma_src_addr[RAMW-1:0] ),
     .q1a    ( ram_dma_data  ),
     // 8-bit IOCTL access
     .data1  ( 8'd0      ),
@@ -320,9 +308,13 @@ jtframe_dual_nvram16 #(
     .sel_b  ( ioctl_ram )
 );
 
-// compact index = slot*8 + word; source index = slot*0x80 + word.
-// dma_addr is the word index represented by bits [13:1], so its low three
-// numeric bits are dma_addr[3:1] and the 8-bit slot is [11:4].
+// Compact K053246 index = slot*8 + word; GX173 source index = slot*0x80 + word.
+// dma_addr is represented by byte-address bits [13:1], so its low three
+// numeric word bits are dma_addr[3:1] and its 8-bit slot is [11:4].
 assign dma_src_addr = {dma_addr[11:4],7'd0} + {{12{1'b0}},dma_addr[3:1]};
+// The shared K053246 walker traverses 512 compact entries, but GX173 provides
+// 256 source slots.  The former compact RAM left entries 256..511 unwritten
+// (zero); do not wrap dma_addr[12] onto source slots 0..255 in the full RAM.
+assign dma_source_data = dma_addr[12] ? 16'h0000 : ram_dma_data;
 
 endmodule
