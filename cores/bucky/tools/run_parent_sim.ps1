@@ -2,6 +2,7 @@ param(
     [Parameter(Mandatory = $true)] [string] $Executable,
 	[Parameter(Mandatory = $true)] [string] $RomDir,
 	[int] $MaxFrames = 2,
+	[int] $MaxCycles = 0,
 	[int] $TraceMax = 100000,
 	[string] $TraceFile = '',
 	[switch] $Diagnostics,
@@ -13,6 +14,7 @@ param(
 	[switch] $PostDiagnostics,
 	[switch] $PostDiagnosticsStop,
 	[switch] $PcDiagnostics,
+	[switch] $PcEvery,
 	[switch] $CpuDetails,
 	[switch] $ExceptionDiagnostics,
 	[switch] $StopOnError,
@@ -20,17 +22,30 @@ param(
 	[int] $CoinFrame = -1,
 	[int] $Coin2Frame = -1,
 	[int] $StartFrame = -1,
+	[int] $Button1Frame = -1,
+	[int] $Button1Period = -1,
+	[int] $Button1End = -1,
+	[int] $RightStart = -1,
+	[int] $RightEnd = -1,
 	[int] $InputPulse = 2,
+	[int] $CoinPulse = -1,
+	[int] $StartPulse = -1,
+	[int] $Button1Pulse = -1,
 	[switch] $InputDiagnostics,
 	[switch] $GameplayDiagnostics,
 	[switch] $ObjectDiagnostics,
 	[switch] $ObjectBusDiagnostics,
+	[switch] $ObjectReadDiagnostics,
 	[switch] $ProtectionDiagnostics,
 	[switch] $RequireAttract,
 	[switch] $RequireGameplay,
 	[switch] $RequireNoException,
 	[string] $PpmFile = '',
 	[int] $PpmFrame = 0,
+	[string] $VramDumpFile = '',
+	[int] $VramDumpFrame = 0,
+	[string] $ObjDumpFile = '',
+	[int] $ObjDumpFrame = 0,
 	[string] $LogFile = '',
 	[string] $MilestoneFile = '',
 	[uint32] $Dipsw = 0x00a00000
@@ -70,11 +85,11 @@ foreach ($name in $requiredRomFiles) {
 		throw "Parent simulation image hash mismatch: $name"
 	}
 }
-$safeCommand = Get-Command verilator-safe -ErrorAction SilentlyContinue
+$safeCommand = Get-Command verilator-sim-safe -ErrorAction SilentlyContinue
 $safeVerilator = if ($safeCommand) {
 	$safeCommand.Source
 } else {
-	'C:\Users\meath\bin\verilator-safe.exe'
+	'C:\Users\meath\bin\verilator-sim-safe.exe'
 }
 if (-not (Test-Path -LiteralPath $safeVerilator)) {
 	throw "Missing machine-wide Verilator safe launcher: $safeVerilator"
@@ -128,6 +143,7 @@ $plus = @(
 	"+PCM_HEX=$(Join-Path $rom 'pcm.hex')",
 	"+NVRAM_HEX=$(Join-Path $rom 'nvram.hex')",
 	"+MAX_FRAMES=$MaxFrames",
+	"+MAX_CYCLES=$MaxCycles",
 	"+TRACE_MAX=$TraceMax",
 	"+TRACE_FILE=$trace",
 	"+RESULT_FILE=$result",
@@ -142,6 +158,7 @@ if ($Z80Diagnostics) { $plus += '+Z80_DIAG' }
 if ($PostDiagnostics) { $plus += '+POST_DIAG' }
 if ($PostDiagnosticsStop) { $plus += '+POST_DIAG_STOP' }
 if ($PcDiagnostics) { $plus += '+PC_DIAG' }
+if ($PcEvery) { $plus += '+PC_EVERY' }
 if ($CpuDetails) { $plus += '+CPUDETAIL' }
 if ($ExceptionDiagnostics) { $plus += '+EXCEPTION_DIAG' }
 if ($StopOnError) { $plus += '+STOP_ON_ERROR' }
@@ -149,12 +166,21 @@ if ($StopOnException) { $plus += '+STOP_ON_EXCEPTION' }
 if ($CoinFrame -ge 0) { $plus += "+COIN_FRAME=$CoinFrame" }
 if ($Coin2Frame -ge 0) { $plus += "+COIN2_FRAME=$Coin2Frame" }
 if ($StartFrame -ge 0) { $plus += "+START_FRAME=$StartFrame" }
+if ($Button1Frame -ge 0) { $plus += "+BUTTON1_FRAME=$Button1Frame" }
+if ($Button1Period -gt 0) { $plus += "+BUTTON1_PERIOD=$Button1Period" }
+if ($Button1End -ge 0) { $plus += "+BUTTON1_END=$Button1End" }
+if ($RightStart -ge 0) { $plus += "+RIGHT_START=$RightStart" }
+if ($RightEnd -ge 0) { $plus += "+RIGHT_END=$RightEnd" }
 if ($InputPulse -lt 1) { throw 'InputPulse must be at least one frame' }
-if ($CoinFrame -ge 0 -or $Coin2Frame -ge 0 -or $StartFrame -ge 0) { $plus += "+INPUT_PULSE=$InputPulse" }
+if ($CoinPulse -ge 0) { $plus += "+COIN_PULSE=$CoinPulse" }
+if ($StartPulse -ge 0) { $plus += "+START_PULSE=$StartPulse" }
+if ($Button1Pulse -ge 0) { $plus += "+BUTTON1_PULSE=$Button1Pulse" }
+if ($CoinFrame -ge 0 -or $Coin2Frame -ge 0 -or $StartFrame -ge 0 -or $Button1Frame -ge 0) { $plus += "+INPUT_PULSE=$InputPulse" }
 if ($InputDiagnostics) { $plus += '+INPUT_DIAG' }
 if ($GameplayDiagnostics) { $plus += '+GAMEPLAY_DIAG' }
 if ($ObjectDiagnostics) { $plus += '+OBJ_DIAG' }
 if ($ObjectBusDiagnostics) { $plus += '+OBJ_BUS_DIAG' }
+if ($ObjectReadDiagnostics) { $plus += '+OBJ_READ_DIAG' }
 if ($ProtectionDiagnostics) { $plus += '+PROT_DIAG' }
 if ($RequireAttract) { $plus += '+REQUIRE_ATTRACT' }
 if ($RequireGameplay) { $plus += '+REQUIRE_GAMEPLAY' }
@@ -162,6 +188,14 @@ if ($RequireNoException) { $plus += '+REQUIRE_NO_EXCEPTION' }
 if (-not [string]::IsNullOrWhiteSpace($PpmFile)) {
 	$plus += "+PPM_FILE=$([IO.Path]::GetFullPath($PpmFile))"
 	$plus += "+PPM_FRAME=$PpmFrame"
+}
+if (-not [string]::IsNullOrWhiteSpace($VramDumpFile)) {
+	$plus += "+VRAM_DUMP_FILE=$([IO.Path]::GetFullPath($VramDumpFile))"
+	$plus += "+VRAM_DUMP_FRAME=$VramDumpFrame"
+}
+if (-not [string]::IsNullOrWhiteSpace($ObjDumpFile)) {
+	$plus += "+OBJ_DUMP_FILE=$([IO.Path]::GetFullPath($ObjDumpFile))"
+	$plus += "+OBJ_DUMP_FRAME=$ObjDumpFrame"
 }
 if (-not [string]::IsNullOrWhiteSpace($MilestoneFile)) {
 	$plus += "+MILESTONE_FILE=$([IO.Path]::GetFullPath($MilestoneFile))"
@@ -171,14 +205,14 @@ $previousPath = $env:PATH
 $env:PATH = "$sdlRuntime;$previousPath"
 Push-Location $runtime
 try {
-	# The machine-wide launcher owns the mandatory visible SDL guard for the
-	# complete simulation process.  Invoke its explicit simulation mode rather
-	# than starting the model executable headlessly.
+	# The machine-wide simulation launcher owns the mandatory visible SDL guard
+	# for the complete simulation process.  Invoke its dedicated simulation
+	# entry point rather than starting the model executable headlessly.
 	if ([string]::IsNullOrWhiteSpace($LogFile)) {
-		& $safeVerilator sim $exe @plus
+		& $safeVerilator $exe @plus
 	} else {
 		$log = [IO.Path]::GetFullPath($LogFile)
-		& $safeVerilator sim $exe @plus 2>&1 | Tee-Object -FilePath $log
+		& $safeVerilator $exe @plus 2>&1 | Tee-Object -FilePath $log
 	}
 	$simExit = $LASTEXITCODE
 	if ($simExit -ne 0) { throw "Parent simulation failed with exit code $simExit" }

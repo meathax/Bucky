@@ -36,17 +36,49 @@ wire        snd_irq, rmrd, rst8, dma_bsy,
             pal_cs, cpu_we, tilesys_cs, tilereg_cs, tilereg_b_cs, objsys_cs, pcu_cs, alpha_cs, mute, objcha_n,
             cpu_rnw, vdtac, pal_wait, tile_irqn, tile_nmin, snd_wrn,
             objreg_cs, pair_we;
-wire [15:0] pal_dout, alpha_dout, oram_dout, tilesys_dout, romrd_dout;
+wire [15:0] pal_dout, alpha_dout, oram_dout, obj_src_dout,
+            tilesys_dout, romrd_dout;
 wire  [ 7:0] pcu_dout;
 wire [15:0] video_dumpa;
 wire [ 7:0] ccu_dout;
 wire [ 8:0] video_vdump;
 wire [13:1] oram_addr;
+wire [14:0] obj_dma_src_addr;
+wire [15:0] obj_dma_src_data;
 wire [15:0] obj_cpu_addr;
 wire [ 7:0] snd2main,
             obj_dout, snd_latch, pair_dout,
             st_main, st_video, st_snd;
 wire [ 1:0] oram_we;
+
+// GX173 exposes a full 0x10000-byte sprite-source RAM at 0x090000.  The
+// K053247 engine only consumes the first eight words of each 0x80-word slot,
+// so bucky_video keeps a compact 8K-word draw RAM for the DMA path.  The CPU
+// still reads/writes the complete source window: its pointer/metadata words
+// (for example 0x090020 and the per-object +0x5c link) are live game state and
+// must not be discarded by the compact draw-RAM alias.
+`ifdef BUCKY_SIM_FULL_SOURCE
+(* ramstyle = "M10K, no_rw_check" *) reg [15:0] obj_src_mem [0:32767];
+// DMA only consumes words 0..7 of each 0x80-word source slot.  Keep that
+// translated 256x8 view beside the full CPU table so the timing probe does
+// not perform a 32K-word random read on every pxl2_cen interval.
+(* ramstyle = "M10K, no_rw_check" *) reg [15:0] obj_dma_mem [0:2047];
+reg [15:0] obj_src_q;
+reg [15:0] obj_dma_src_q;
+reg        obj_dma_prefetch;
+integer obj_src_i;
+initial begin
+`ifdef SIMULATION
+    for (obj_src_i=0; obj_src_i<32768; obj_src_i=obj_src_i+1)
+        obj_src_mem[obj_src_i] = 16'h0000;
+    for (obj_src_i=0; obj_src_i<2048; obj_src_i=obj_src_i+1)
+        obj_dma_mem[obj_src_i] = 16'h0000;
+`endif
+    obj_src_q = 16'h0000;
+    obj_dma_src_q = 16'h0000;
+    obj_dma_prefetch = 1'b0;
+end
+`endif // BUCKY_SIM_FULL_SOURCE source-table mirror
 
 // Release builds expose no diagnostic overlay or runtime tuning controls.
 assign debug_view = 8'd0;
@@ -57,6 +89,7 @@ assign ram_addr   = {ram_bank,main_addr[15:1]};
 assign video_dumpa= ioctl_addr[15:0]-16'h80; // subtract NVRAM offset
 
 `ifdef SIMULATION
+`ifndef BUCKY_FAST_SIM
 // ⭐ SESION 19: SONDA DE LATENCIA SDRAM DEL BUS `scr` (tile ROM) con el controlador SDRAM REAL de jtframe.
 // Mide los clk desde scr_cs↑ (peticion) hasta scr_ok↑ (dato listo). Dice la latencia EFECTIVA real por
 // lectura -> comparar con la rodilla del modelo por-lectura del vfull (L≈5). Si la real << 5, el fetch
@@ -88,6 +121,17 @@ always @(posedge clk) begin
                 (scr_nframe>0)?(scr_nreq*1.0/scr_nframe/264.0):0.0, scr_lb0,scr_lb4,scr_lb8,scr_lb16,scr_lb32);
     end
 end
+`endif
+`endif
+
+`ifdef BUCKY_SIM_FULL_SOURCE
+assign obj_src_dout = obj_src_q;
+assign obj_dma_src_data = obj_dma_src_q;
+`else
+// Default simulation and production use the compact board RAM path.  The
+// full source-table mirror is opt-in because it changes CPU read timing.
+assign obj_src_dout = oram_dout;
+assign obj_dma_src_data = 16'h0000;
 `endif
 
 /*always @(posedge clk) begin
@@ -126,7 +170,7 @@ bucky_main u_main(
     .service        ( {4{service}}  ),
 
     .vram_dout      ( tilesys_dout  ),
-    .oram_dout      ( oram_dout     ),
+    .oram_dout      ( obj_src_dout  ),
     .pal_dout       ( pal_dout      ),
     .alpha_dout     ( alpha_dout    ),
     .pcu_dout       ( pcu_dout      ),
@@ -188,6 +232,36 @@ assign oram_addr = {main_addr[6:5], main_addr[1], main_addr[13:7], main_addr[4:2
 // base before compacting the 0x80-word source slots in bucky_video.
 assign obj_cpu_addr = main_addr[16:1] - 16'h8000;
 
+// Keep the CPU-visible source RAM separate from the K053247's compact draw
+// store in the simulation differential model.  Production retains the
+// original compact dual-port RAM implementation inside cowboys_obj.
+`ifdef BUCKY_SIM_FULL_SOURCE
+always @(posedge clk) begin
+    // Keep a synchronous second read port for the K053246 object DMA, matching
+    // the dual-port RAM contract used by the production path.  The DMA holds
+    // each address between pxl2_cen edges, so this registered result is stable
+    // at the consumer edge without building a giant combinational RAM mux.
+    // The DMA consumes its data on pxl2_cen.  Fetch one master-clock later
+    // than the address change (and before the next consumer edge), avoiding a
+    // 48-MHz random read of the 32K-word mirror while preserving the RAM's
+    // one-cycle registered latency.
+    obj_dma_prefetch <= pxl2_cen;
+    if (obj_dma_prefetch && dma_bsy)
+        obj_dma_src_q <= obj_dma_mem[{obj_dma_src_addr[14:7],obj_dma_src_addr[2:0]}];
+    if (objsys_cs) begin
+        obj_src_q <= obj_src_mem[obj_cpu_addr[14:0]];
+        if (cpu_we) begin
+            if (!ram_dsn[0]) obj_src_mem[obj_cpu_addr[14:0]][ 7:0] <= ram_din[ 7:0];
+            if (!ram_dsn[1]) obj_src_mem[obj_cpu_addr[14:0]][15:8] <= ram_din[15:8];
+            if (obj_cpu_addr[6:3] == 4'd0) begin
+                if (!ram_dsn[0]) obj_dma_mem[{obj_cpu_addr[14:7],obj_cpu_addr[2:0]}][ 7:0] <= ram_din[ 7:0];
+                if (!ram_dsn[1]) obj_dma_mem[{obj_cpu_addr[14:7],obj_cpu_addr[2:0]}][15:8] <= ram_din[15:8];
+            end
+        end
+    end
+end
+`endif
+
 /* verilator tracing_off */
 bucky_video u_video (
     .rst            ( rst           ),
@@ -217,6 +291,8 @@ bucky_video u_video (
     .oram_we        ( oram_we       ),
     .oram_addr      ( oram_addr     ),
     .obj_cpu_addr   ( obj_cpu_addr  ),
+    .dma_src_addr   ( obj_dma_src_addr ),
+    .dma_src_data   ( obj_dma_src_data ),
     .dma_bsy        ( dma_bsy       ),
 
     .objsys_cs      ( objsys_cs     ),

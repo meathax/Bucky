@@ -49,6 +49,8 @@ module bucky_video(
     // main_addr carries the 68000 A1.. bus bits; the absolute base address
     // must not leak into the compact K053247 object RAM address.
     input      [15:0] obj_cpu_addr,
+    output     [14:0] dma_src_addr,
+    input      [15:0] dma_src_data,
     // CPU interface
     input      [16:1] cpu_addr,
     input      [ 1:0] cpu_dsn,
@@ -237,9 +239,9 @@ assign ommra = {cpu_addr[3:1],cpu_dsn[1]};
 // El test de sprite RAM del POST (0x4a18e) SIGUE PASANDO: escribe y RELEE cada long EN EL ACTO con
 // patrones UNIFORMES (0 / 0xffffff), asi que la word aliaseada ya contiene ese mismo patron. (Es la misma
 // razon por la que pasaba con el aliasing 4:1 de antes — ese test no prueba NADA sobre el layout: §sesion 12.)
-// Destino: NO hace falta la compactacion de `object_dma`. MAME no ordena en el DMA, ordena AL DIBUJAR
-// (`k053246_k053247_k055673.cpp:324-374`, `sortedlist` por el byte de prioridad); `k053246_dma` hace esa
-// misma ordenacion en el DMA via LUT (`dma_bufa <= {sort_24x,3'd0}`) = como el chip real. Neto: identico.
+// El DMA del core recibe ahora la tabla fuente completa por `dma_src_addr/data` en cowboys_obj,
+// y conserva la conversion N*0x80+w -> N*8+w en el propio puerto del custom.  La ordenacion por
+// prioridad sigue siendo la LUT del K053246 (`dma_bufa <= {sort_24x,3'd0}`), como en el silicio.
 // RAMW=13 -> el DMA barre words 0..4095 (entradas 0..511); las 256..511 nunca se escriben => 0 => bit15=0
 // => descartadas. Por eso RAMW se queda en 13 y no hace falta RAM extra.
 // The CPU window is word-addressed relative to 0x090000.  Its 0x80-word
@@ -335,7 +337,7 @@ localparam [9:0] OVOFFSET=10'h117;
 // Offset H del obj: el K053246 espera hdump 0x20-based (Konami CRTC); nuestro hdump es 0-based. Calibracion
 // de origen CRT (constante). OBJ_HOFF=149 + OVOFFSET=0x117 => sprites PIXEL-EXACTOS vs golden --mode full en
 // escenas 600/900/1800 (0 diffs de sprite; solo residuo col-0/pipeline conocido). Validado run_vfull sesion 4.
-localparam [8:0] OBJ_HOFF=9'd148;
+localparam [8:0] OBJ_HOFF=9'd149;
 
 // ⭐ EDGE_TRIGGER (sesion 12) — el DMA de sprites de moomesa es un ARMADO DE UN SOLO DISPARO.
 // Desensamblado del juego (coste 0 sims), protocolo REAL:
@@ -375,6 +377,8 @@ cowboys_obj #(.RAMW(13),.SHADOW(1),.EDGE_TRIGGER(EDGE_TRIGGER)) u_obj(   // FORK
     .ram_din    ( cpu_dout  ),
     .ram_we     ( orama_we  ),
     .cpu_din    (objsys_dout),
+    .dma_src_addr( dma_src_addr ),
+    .dma_src_data( dma_src_data ),
 
     .reg_cs     ( objreg_cs ),
     .mmr_addr   ( ommra     ),

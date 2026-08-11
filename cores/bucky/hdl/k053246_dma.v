@@ -112,10 +112,11 @@ always @(posedge clk) if (`BUCKY_TEST_PLUSARGS("OBJ_DIAG")) begin
         obj_dma_diag_count <= obj_dma_diag_count + 1;
     end
     // The MAME parent has live objects in source slots 0x50..0x6d.  Those
-    // slots are compact-DMA addresses 0x280..0x368; keep a separate probe so
+    // active gameplay slots are compact-DMA addresses 0x500..0x6d0 (source
+    // table slots 0x50..0x6d); keep a separate probe so
     // POST's zero-filled slots cannot consume the useful diagnostic budget.
     if (dma_bsy && !dma_clr && dma_addr[3:1] == 3'd0 &&
-        dma_addr >= 13'h280 && dma_addr <= 13'h368 &&
+        dma_addr >= 13'h500 && dma_addr <= 13'h6d0 && dma_data != 16'h0000 &&
         obj_dma_active_diag_count < 96) begin
         $display("OBJ_DMA_ACTIVE n=%0d addr=%04x data=%04x active=%b pri=%02x ok=%b",
             obj_dma_active_diag_count, dma_addr, dma_data, dma_data[15], dma_data[7:0], dma_ok);

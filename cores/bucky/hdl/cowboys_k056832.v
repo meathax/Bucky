@@ -52,7 +52,9 @@ module cowboys_k056832(
 );
 
 localparam signed [9:0] VX0 = 10'sd40;   // visarea X0
-// layer_offs X = {-1,3,5,7}  (scrollX = dx - offs)
+// Bucky's GX173 video-start configuration uses {-2,2,4,6}; Moo Mesa adds one
+// pixel to each layer in its separate VIDEO_START path.  Keep the title
+// specific Bucky offsets here (MAME moo.cpp::VIDEO_START(bucky)).
 function signed [9:0] offx(input [1:0] l);
     case(l) 2'd0: offx=-10'sd2; 2'd1: offx=10'sd2; 2'd2: offx=10'sd4; default: offx=10'sd6; endcase
 endfunction
@@ -77,10 +79,10 @@ jtframe_vtimer #(
     // la derecha vs MAME — visible al comparar sim_snaps/mame_snaps). Al mover LHBL/HS +3, el muestreo
     // empieza en H=3, donde el RGB ya es content[0] -> alinea las dos capas de golpe SIN tocar el fetch.
     // Era el dx=3 / shift L=3 que rgbdiff barria y el HANDOFF tenia anotado como calibracion de timing HW.
-    //   HB_START 0x17F(383)->0x182(386): activo 3..386 = 384 px exactos (mantiene el ancho, sin size mismatch).
-    //   HB_END   0x1C7(455)->0x002(2)   : LHBL sube en H=3 (antes en H=0). Blanking 387..455,0,1,2 (wrap ok).
-    //   HS_START 0x190(400)->0x193(403) : HS acompaña +3 -> imagen centrada igual respecto al sync (HW).
-    .HB_START(9'h182), .HB_END(9'h002), .HS_START(9'h193),
+    //   HB_START 0x17F(383)->0x183(387): activo 4..387 = 384 px exactos (mantiene el ancho, sin size mismatch).
+    //   HB_END   0x1C7(455)->0x003(3)   : LHBL sube en H=4 (blanking 388..455,0..3).
+    //   HS_START 0x190(400)->0x194(404) : HS acompaña +4 para el Bucky K054338 pipeline.
+    .HB_START(9'h183), .HB_END(9'h003), .HS_START(9'h194),
     .V_START(9'h0F8), .VB_START(9'h1EF), .VB_END(9'h10F),
     .VS_START(9'h1FF), .VS_END(9'h0FF), .VCNT_END(9'h1FF)
 ) u_vtimer(

@@ -569,6 +569,8 @@ integer    prot_diag_count;
 initial    prot_diag_count = 0;
 integer    obj_bus_diag_count;
 initial    obj_bus_diag_count = 0;
+integer    obj_read_diag_count;
+initial    obj_read_diag_count = 0;
 reg [15:0] frame_id;
 reg        lvbl_l, busn_l;
 wire       prog_fetch = ~ASn & RnW & FC[1] & ~FC[0]; // FC=x10 program space (user/supervisor)
@@ -651,6 +653,16 @@ always @(posedge clk, posedge rst) begin
                     ({pc_last,1'b0} >= 24'h001a00) &&
                     (eff_addr[23:1] == 23'h0405ff)) $finish;
             end
+        end
+        // Capture the value actually presented on the CPU return bus for
+        // object-source reads.  The source RAM is registered; this probe is
+        // intentionally read-only and makes any stale-read timing visible.
+        if (`BUCKY_TEST_PLUSARGS("OBJ_READ_DIAG") && obj_cs && RnW &&
+            !BUSn && !dtac_mux && (frame_id >= 16'd480) &&
+            obj_read_diag_count < 256) begin
+            $display("OBJ_BUS_RD frame=%0d pc=%06x addr=%06x din=%04x",
+                     frame_id, {pc_last,1'b0}, {eff_addr,1'b0}, cpu_din);
+            obj_read_diag_count = obj_read_diag_count + 1;
         end
         if (`BUCKY_TEST_PLUSARGS("PROT_DIAG") && blt_trig && prot_diag_count < 128) begin
             $display("PROT_TRIG addr=%06x data=%04x len=%04x busy=%b",

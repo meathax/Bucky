@@ -29,11 +29,17 @@ def main() -> None:
 
     source = args.source.read_text(encoding="utf-8")
     count = source.count(MAIN_SLOT)
-    if count != 1:
+    # A prior JTFRAME generation may already contain the derived cache size.
+    # Preserve that valid generated wrapper instead of failing a rebuild merely
+    # because the workbench artifact is no longer the pristine template.
+    if count == 0 and ".CACHE1_SIZE(8)" in source:
+        derived = source
+    elif count != 1:
         raise SystemExit(
             f"expected exactly one Bucky main SDRAM slot in {args.source}, found {count}"
         )
-    derived = source.replace(MAIN_SLOT, MAIN_SLOT_DERIVED)
+    else:
+        derived = source.replace(MAIN_SLOT, MAIN_SLOT_DERIVED)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(derived, encoding="utf-8", newline="\n")
 

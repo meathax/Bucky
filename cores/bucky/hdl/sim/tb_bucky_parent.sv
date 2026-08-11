@@ -5,6 +5,9 @@
 // +SPRITE_HEX=, +PCM_HEX= and +NVRAM_HEX= at run time; no copyrighted ROM
 // data belongs in the repository.
 module tb_bucky_parent;
+    import "DPI-C" function void bucky_sdl_init(input int width, input int height);
+    import "DPI-C" function void bucky_sdl_frame(input byte unsigned red[], input byte unsigned green[], input byte unsigned blue[], input int width, input int height);
+    import "DPI-C" function void bucky_sdl_done();
     localparam integer MAIN_WORDS = 1179648; // 0x240000 bytes / 2
     localparam integer SND_BYTES  = 262144;  // 0x40000 bytes
     localparam integer TILE_BYTES = 2097152; // K056832 region
@@ -95,6 +98,10 @@ module tb_bucky_parent;
     integer result_fd;
     reg [8*256-1:0] milestone_file;
     integer milestone_fd;
+    reg vram_dump_diag;
+    integer vram_dump_frame;
+    reg [8*256-1:0] vram_dump_file;
+    integer vram_dump_fd;
     integer i;
 
     initial begin
@@ -102,6 +109,8 @@ module tb_bucky_parent;
         result_fd = 0;
         milestone_file = 0;
         milestone_fd = 0;
+        vram_dump_diag = $value$plusargs("VRAM_DUMP_FRAME=%d", vram_dump_frame);
+        void'($value$plusargs("VRAM_DUMP_FILE=%s", vram_dump_file));
         void'($value$plusargs("RESULT_FILE=%s", result_file));
         if ($value$plusargs("MILESTONE_FILE=%s", milestone_file)) begin
             milestone_fd = $fopen(milestone_file, "w");
@@ -135,6 +144,8 @@ module tb_bucky_parent;
     // the parent leaves POST and reaches the attract/gameplay state.
     reg frame_state_diag;
     initial frame_state_diag = $test$plusargs("FRAMESTATE");
+    reg pc_every_diag;
+    initial pc_every_diag = $test$plusargs("PC_EVERY");
     reg cpu_detail_diag;
     initial cpu_detail_diag = $test$plusargs("CPUDETAIL");
     reg stop_on_error;
@@ -148,6 +159,14 @@ module tb_bucky_parent;
     integer ppm_index;
     integer ppm_fd;
     integer ppm_i;
+`ifdef BUCKY_FAST_SIM
+    // Keep the SDL window alive while reducing host-side framebuffer copies
+    // during long exploratory replays.  An explicitly requested PPM target
+    // is still captured on its exact frame below.
+    localparam integer SDL_CAPTURE_DIV = 60;
+`else
+    localparam integer SDL_CAPTURE_DIV = 4;
+`endif
     reg [7:0] ppm_r [0:384*224-1];
     reg [7:0] ppm_g [0:384*224-1];
     reg [7:0] ppm_b [0:384*224-1];
@@ -157,6 +176,10 @@ module tb_bucky_parent;
         void'($value$plusargs("PPM_FRAME=%d", ppm_frame_target));
         ppm_frame_id = 0;
         ppm_index = 0;
+        bucky_sdl_init(384, 224);
+    end
+    final begin
+        bucky_sdl_done();
     end
     integer active_pixels;
     integer nonzero_pixels;
@@ -190,7 +213,9 @@ module tb_bucky_parent;
         unexpected_vector_seen = 1'b0;
         exception_fd = 0;
     end
-    integer coin_frame, coin2_frame, start_frame, input_pulse;
+    integer coin_frame, coin2_frame, start_frame, button1_frame;
+    integer button1_period, button1_end, right_start, right_end, input_pulse;
+    integer coin_pulse, start_pulse, button1_pulse;
     reg attract_seen;
     reg require_attract;
     reg start_accepted;
@@ -201,7 +226,15 @@ module tb_bucky_parent;
         coin_frame = -1;
         coin2_frame = -1;
         start_frame = -1;
+        button1_frame = -1;
+        button1_period = -1;
+        button1_end = -1;
+        right_start = -1;
+        right_end = -1;
         input_pulse = 2;
+        coin_pulse = -1;
+        start_pulse = -1;
+        button1_pulse = -1;
         attract_seen = 0;
         require_attract = $test$plusargs("REQUIRE_ATTRACT");
         start_accepted = 0;
@@ -211,8 +244,19 @@ module tb_bucky_parent;
         void'($value$plusargs("COIN_FRAME=%d", coin_frame));
         void'($value$plusargs("COIN2_FRAME=%d", coin2_frame));
         void'($value$plusargs("START_FRAME=%d", start_frame));
+        void'($value$plusargs("BUTTON1_FRAME=%d", button1_frame));
+        void'($value$plusargs("BUTTON1_PERIOD=%d", button1_period));
+        void'($value$plusargs("BUTTON1_END=%d", button1_end));
+        void'($value$plusargs("RIGHT_START=%d", right_start));
+        void'($value$plusargs("RIGHT_END=%d", right_end));
         void'($value$plusargs("INPUT_PULSE=%d", input_pulse));
         if (input_pulse < 1) input_pulse = 1;
+        void'($value$plusargs("COIN_PULSE=%d", coin_pulse));
+        void'($value$plusargs("START_PULSE=%d", start_pulse));
+        void'($value$plusargs("BUTTON1_PULSE=%d", button1_pulse));
+        if (coin_pulse < 1) coin_pulse = input_pulse;
+        if (start_pulse < 1) start_pulse = input_pulse;
+        if (button1_pulse < 1) button1_pulse = input_pulse;
     end
     integer post_probe;
     initial post_probe = 0;
@@ -735,11 +779,18 @@ module tb_bucky_parent;
                     sprite_nonzero <= sprite_nonzero + 1;
                 frame_hash <= {frame_hash[28:0], frame_hash[31:29]} ^
                               {8'd0, red, green, blue};
-                if (ppm_diag && ppm_frame_id == ppm_frame_target &&
-                    ppm_index < 384*224) begin
-                    ppm_r[ppm_index] <= red;
-                    ppm_g[ppm_index] <= green;
-                    ppm_b[ppm_index] <= blue;
+                // Keep the RGB capture buffer only for SDL cadence frames
+                // (every fourth native frame) and for an explicitly selected
+                // PPM target.  Filling 86,016 array elements on every frame
+                // made long gameplay replays dominated by diagnostics while
+                // leaving the displayed/captured pixels unchanged.
+                if ((ppm_frame_id % SDL_CAPTURE_DIV) == 0 ||
+                    (ppm_diag && ppm_frame_id == ppm_frame_target)) begin
+                    if (ppm_index < 384*224) begin
+                        ppm_r[ppm_index] <= red;
+                        ppm_g[ppm_index] <= green;
+                        ppm_b[ppm_index] <= blue;
+                    end
                 end
                 ppm_index <= ppm_index + 1;
             end
@@ -747,6 +798,8 @@ module tb_bucky_parent;
             // completed selected frame on the following blank edge, after the
             // final nonblocking pixel writes have committed.
             if (!LVBL && lvbl_pix_d) begin
+                if (ppm_index >= 384*224 && ((ppm_frame_id % SDL_CAPTURE_DIV) == 0))
+                    bucky_sdl_frame(ppm_r, ppm_g, ppm_b, 384, 224);
                 if (ppm_diag && ppm_frame_id == ppm_frame_target &&
                     ppm_index >= 384*224) begin
                     ppm_fd = $fopen(ppm_path, "wb");
@@ -761,6 +814,19 @@ module tb_bucky_parent;
                 ppm_index <= 0;
             end
             if (LVBL && !lvbl_pix_d) begin
+                // Optional post-frame snapshot of the CPU-visible K056832
+                // VRAM.  This is diagnostic only: the MAME script dumps the
+                // corresponding 0x180000-0x183fff window, so comparing the
+                // two arrays localizes missing fixed-layer tiles without
+                // conflating renderer timing with CPU writes.
+                if (vram_dump_diag && ppm_frame_id == vram_dump_frame) begin
+                    vram_dump_fd = $fopen(vram_dump_file, "w");
+                    if (vram_dump_fd == 0) $fatal(1, "cannot open VRAM_DUMP_FILE=%0s", vram_dump_file);
+                    for (ppm_i = 0; ppm_i < 8192; ppm_i = ppm_i + 1)
+                        $fdisplay(vram_dump_fd, "%04x", dut.u_game.u_video.u_scroll.u_vram.u_ram.mem[ppm_i]);
+                    $fclose(vram_dump_fd);
+                    $display("[VRAM_DUMP] frame=%0d file=%0s", ppm_frame_id, vram_dump_file);
+                end
                 if (frame_state_diag)
                     $display("[FRAMESTATE] pc=%08x A=%06x as=%b rnw=%b dtack=%b irq=%0d ctl2=%04x dma=%b objcha=%b rmrd=%b k38=%04x k251=%0d/%0d/%0d pal=%03x",
                              main_pc_debug,
@@ -800,8 +866,27 @@ module tb_bucky_parent;
                              dut.u_game.u_main.u_cpu.u_cpu.u_j68.U_mem_io.r_cpu_sr);
 `else
                 if (cpu_detail_diag)
-                    $display("[CPUDETAIL] pc=%08x (fx68k internal stack probe unavailable)",
-                             main_pc_debug);
+                    $display("[CPUDETAIL] pc=%08x ir=%04x irc=%04x d=%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x a=%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x sr=%04x",
+                             main_pc_debug,
+                             dut.u_game.u_main.u_cpu.u_cpu.Ir,
+                             dut.u_game.u_main.u_cpu.u_cpu.Irc,
+                             dut.u_game.u_main.u_cpu.u_cpu.D0,
+                             dut.u_game.u_main.u_cpu.u_cpu.D1,
+                             dut.u_game.u_main.u_cpu.u_cpu.D2,
+                             dut.u_game.u_main.u_cpu.u_cpu.D3,
+                             dut.u_game.u_main.u_cpu.u_cpu.D4,
+                             dut.u_game.u_main.u_cpu.u_cpu.D5,
+                             dut.u_game.u_main.u_cpu.u_cpu.D6,
+                             dut.u_game.u_main.u_cpu.u_cpu.D7,
+                             dut.u_game.u_main.u_cpu.u_cpu.A0,
+                             dut.u_game.u_main.u_cpu.u_cpu.A1,
+                             dut.u_game.u_main.u_cpu.u_cpu.A2,
+                             dut.u_game.u_main.u_cpu.u_cpu.A3,
+                             dut.u_game.u_main.u_cpu.u_cpu.A4,
+                             dut.u_game.u_main.u_cpu.u_cpu.A5,
+                             dut.u_game.u_main.u_cpu.u_cpu.A6,
+                             dut.u_game.u_main.u_cpu.u_cpu.A7,
+                             dut.u_game.u_main.u_cpu.u_cpu.psw);
 `endif
                 if (pixel_diag)
                     // Keep the state snapshot at the frame boundary: this is
@@ -928,40 +1013,73 @@ module tb_bucky_parent;
     jtbucky_game_sdram dut(.*);
 
     reg lvbl_d;
-    integer frames, cycles, max_frames, max_cycles;
+    integer frames, max_frames, max_cycles;
+    longint unsigned cycles, frame_cycle_limit;
     initial begin
         lvbl_d=1; frames=0; cycles=0; max_frames=3; max_cycles=0;
         void'($value$plusargs("MAX_FRAMES=%d", max_frames));
         void'($value$plusargs("MAX_CYCLES=%d", max_cycles));
+        // Keep the frame-derived watchdog in 64-bit arithmetic.  A long
+        // gameplay replay (3600 frames) otherwise overflows a 32-bit
+        // integer at 3.6 billion clocks and aborts at the first 10,000-cycle
+        // guard point before the board can reach the requested frame.
+        frame_cycle_limit = max_frames;
+        frame_cycle_limit = frame_cycle_limit * 1000000;
         forever begin
             @(posedge clk);
             cycles = cycles + 1;
             if (!LVBL && lvbl_d) begin
                 frames = frames + 1;
                 // Optional deterministic cabinet sequence.  Keep it disabled
-                // by default so an attract-only run remains reproducible;
-                // pass COIN_FRAME/START_FRAME to exercise the real active-low
-                // coin and one-player start edges.
+                // by default so an attract-only run remains reproducible.
+                // The value is the bench's callback-phase frame.  In this
+                // parent integration the 68000 samples the port after the
+                // falling-LVBL update, so the locked MAME schedule is passed
+                // directly (coin=470, start=510, Button 1=550).  A +1 shift
+                // was tested and missed the one-player start poll entirely.
                 if (coin_frame >= 0 || coin2_frame >= 0) begin
-                    if ((coin_frame >= 0 && frames >= coin_frame && frames < coin_frame + input_pulse) ||
-                        (coin2_frame >= 0 && frames >= coin2_frame && frames < coin2_frame + input_pulse))
+                    if ((coin_frame >= 0 && frames >= coin_frame && frames < coin_frame + coin_pulse) ||
+                        (coin2_frame >= 0 && frames >= coin2_frame && frames < coin2_frame + coin_pulse))
                         coin[0] = 1'b0;
                     else
                         coin[0] = 1'b1;
                 end
                 if (start_frame >= 0) begin
-                    if (frames >= start_frame && frames < start_frame + input_pulse)
+                    if (frames >= start_frame && frames < start_frame + start_pulse)
                         cab_1p[0] = 1'b0;
                     else
                         cab_1p[0] = 1'b1;
                 end
+                if (button1_frame >= 0) begin
+                    if ((button1_period > 0 && button1_end >= button1_frame &&
+                         frames >= button1_frame && frames <= button1_end &&
+                        ((frames - button1_frame) % button1_period) < button1_pulse) ||
+                        (button1_period <= 0 && frames >= button1_frame &&
+                         frames < button1_frame + button1_pulse))
+                        joystick1[4] = 1'b0;
+                    else
+                        joystick1[4] = 1'b1;
+                end
+                // JTFRAME_JOY_DURL maps joystick1[1] to the active-low
+                // RIGHT input ({B3,B2,B1,DOWN,UP,RIGHT,LEFT}).
+                if (right_start >= 0 && right_end >= right_start &&
+                    frames >= right_start && frames <= right_end)
+                    joystick1[1] = 1'b0;
+                else
+                    joystick1[1] = 1'b1;
                 if ($test$plusargs("INPUT_DIAG") &&
                     ((coin_frame >= 0 && frames == coin_frame) ||
                      (coin2_frame >= 0 && frames == coin2_frame) ||
-                     (start_frame >= 0 && frames == start_frame)))
-                    $display("[INPUT] frame=%0d coin=%h start=%h", frames, coin, cab_1p);
+                     (start_frame >= 0 && frames == start_frame) ||
+                     (button1_frame >= 0 && frames == button1_frame)))
+                    $display("[INPUT] frame=%0d coin=%h start=%h joystick1=%h", frames, coin, cab_1p, joystick1);
+`ifdef BUCKY_FAST_SIM
+                if ($test$plusargs("TB_PROGRESS"))
+                    $display("[TB] frame=%0d red=%02x green=%02x blue=%02x", frames, red, green, blue);
+`else
                 $display("[TB] frame=%0d red=%02x green=%02x blue=%02x", frames, red, green, blue);
-                if ($test$plusargs("PC_DIAG") && ((frames & 15) == 0))
+`endif
+                if (pc_every_diag || ($test$plusargs("PC_DIAG") && ((frames & 15) == 0)))
                     $display("[PC_DIAG] frame=%0d pc=%06x mailbox=%04x/%04x ctl2=%04x dma=%b",
                              frames, main_pc_debug,
                              ram_mem[17'h0817f], ram_mem[17'h08180],
@@ -1003,7 +1121,7 @@ module tb_bucky_parent;
             // generous harness margin so a valid parent run is not rejected
             // just before its requested final VBlank.
             if ((max_cycles > 0 && cycles > max_cycles) ||
-                (max_cycles == 0 && cycles > max_frames * 1000000))
+                (max_cycles == 0 && cycles > frame_cycle_limit))
                 $fatal(1, "parent integration watchdog expired");
         end
     end

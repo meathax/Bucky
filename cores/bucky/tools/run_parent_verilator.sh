@@ -8,6 +8,21 @@ jtroot="$root/.workbench/upstream/jtcores"
 mdir="${1:-$root/obj_dir/bucky_parent_full}"
 build_jobs="${VERILATOR_BUILD_JOBS:-0}"
 sim_cpu="${BUCKY_SIM_CPU:-fx68k}"
+sim_fast="${BUCKY_SIM_FAST:-0}"
+sim_full_source="${BUCKY_SIM_FULL_SOURCE:-0}"
+
+# MSYS2's login PATH intentionally omits the Windows user-bin directory.  Use
+# the machine-wide guarded launcher by absolute path when command lookup does
+# not find it; falling back to an unguarded Verilator would break the project
+# contract.
+safe_verilator="$(command -v verilator-safe || true)"
+if [[ -z "$safe_verilator" ]]; then
+    safe_verilator="/c/Users/meath/bin/verilator-safe.exe"
+fi
+if [[ ! -x "$safe_verilator" ]]; then
+    echo "Missing machine-wide safe Verilator launcher: $safe_verilator" >&2
+    exit 2
+fi
 
 case "$sim_cpu" in
     fx68k) ;;
@@ -29,14 +44,23 @@ native_path() {
     cygpath -w "$1"
 }
 
+qip_file="$jtroot/cores/bucky/files.qip"
+if [[ ! -f "$qip_file" ]]; then
+    qip_file="$jtroot/cores/bucky/mister/files.qip"
+fi
+if [[ ! -f "$qip_file" ]]; then
+    echo "Missing Bucky files.qip under cores/bucky or cores/bucky/mister" >&2
+    exit 2
+fi
+
 mapfile -t qip_sources < <(
-    grep -E '(^| )((SYSTEM)?VERILOG)_FILE ' "$jtroot/cores/bucky/files.qip" |
+    grep -E '(^| )((SYSTEM)?VERILOG)_FILE ' "$qip_file" |
     sed -E 's/.* (.*)$/\1/' |
     sed 's#\\#/#g' |
     while IFS= read -r path; do
         case "$path" in
             *.vhd|*.VHDL) continue ;;
-            *"/cores/bucky/jtbucky_game_sdram.v") continue ;;
+            *"/cores/bucky/jtbucky_game_sdram.v"|*"/cores/bucky/mister/jtbucky_game_sdram.v") continue ;;
             *"/cores/bucky/hdl/"*)
                 printf '%s/cores/bucky/hdl/%s\n' "$root" "${path##*/cores/bucky/hdl/}" ;;
             *"/jtcores/"*)
@@ -65,6 +89,7 @@ sources=(
     "$(native_path "$root/cores/bucky/rtl/sim/bucky_main_trace_bind.sv")"
     "$(native_path "$root/cores/bucky/rtl/sim/bucky_contract_assertions.sv")"
     "$(native_path "$root/cores/bucky/hdl/sim/tb_bucky_parent.sv")"
+    "$(native_path "$root/cores/bucky/hdl/sim/sim_sdl.cpp")"
 )
 for source in "${qip_sources[@]}"; do
     sources+=("$(native_path "$source")")
@@ -83,7 +108,24 @@ defs=(
     -DJTFRAME_BA3_LEN=64 -DJTFRAME_IOCTL_RD=128
     -DJTFRAME_TIMESTAMP=0 -DJTFRAME_LF_HW=1 -DJTFRAME_LF_VW=1
     -DJTFRAME_MR_FASTIO=0 -DSND_RAMW=13
+    # Some JTFRAME generated debug sources are parsed even in release builds;
+    # provide their harmless geometry default so Verilator can elaborate the
+    # same source closure Quartus accepts.
+    -DJTFRAME_DEBUG_VPOS=0
 )
+
+# Keep the default model strict for differential acceptance.  A separate
+# exploratory binary may opt into Verilator's throughput flags when a long
+# visual replay is needed; that binary is never evidence of exactness.
+if [[ "$sim_fast" == 1 ]]; then
+    defs+=( --x-assign fast --x-initial fast --noassert -DBUCKY_FAST_SIM )
+fi
+if [[ "$sim_full_source" == 1 ]]; then
+    # Exploratory only: mirror the complete GX173 object-source window so
+    # CPU metadata reads and K053246 DMA can be compared without changing the
+    # production compact RAM path.
+    defs+=( -DBUCKY_SIM_FULL_SOURCE )
+fi
 
 # Match the production core by default: without JTFRAME_J68, jtframe_m68k
 # instantiates fx68k.  J68 is useful for targeted diagnostics but must not be
@@ -105,8 +147,11 @@ includes=(
 # Verilator 5.050 rejects --savable together with this event/timing bench.
 # Keep the strict single-threaded correctness model until the bench moves to
 # an untimed C++ clock driver with VerilatedSave/VerilatedRestore support.
-verilator-safe --binary --timing --threads 1 -O3 -Wno-fatal \
+# Verilator appends its default -Os after user CFLAGS.  Repeat -O3 last so
+# the generated model keeps native optimizer speed during long replays.
+"$safe_verilator" --binary --timing --threads 1 -O3 -Wno-fatal \
     --top-module tb_bucky_parent --Mdir "$(native_path "$mdir")" --build -j "$build_jobs" \
     --output-split 20000 \
-    -CFLAGS '-O3 -march=native -D_GLIBCXX_USE_CXX11_ABI=0' \
+    -CFLAGS '-O3 -march=native -D_GLIBCXX_USE_CXX11_ABI=0 -IC:/msys64/ucrt64/include/SDL2 -O3' \
+    -LDFLAGS '-LC:/msys64/ucrt64/lib -lSDL2' \
     "${defs[@]}" "${includes[@]}" "${sources[@]}"

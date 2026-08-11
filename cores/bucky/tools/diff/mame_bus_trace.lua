@@ -99,11 +99,16 @@ for _, cpu_info in ipairs(CPU_SPACES) do
         cpu_info.first, cpu_info.last, "mister_trace_read_" .. cpu_info.cpu,
         function(address, data, mask)
             emit(cpu_info, device, "r", address, data, mask)
+            return data
         end)
     taps[#taps + 1] = space:install_write_tap(
         cpu_info.first, cpu_info.last, "mister_trace_write_" .. cpu_info.cpu,
         function(address, data, mask)
             emit(cpu_info, device, "w", address, data, mask)
+            -- A tap must be observational.  Returning the original value is
+            -- required by MAME's tap API; omitting it changes the emulated
+            -- write and can send the traced machine down a false path.
+            return data
         end)
 end
 

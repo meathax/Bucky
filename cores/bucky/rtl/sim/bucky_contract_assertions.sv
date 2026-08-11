@@ -9,8 +9,11 @@ module bucky_main_contract_assertions(
 	input logic in0_cs, in1_cs, p1p3_cs, p2p4_cs, control2_cs,
 	input logic pair_we,
 	input logic irq5_ack, irq4_ack,
-	input logic [2:0] ipln
+	input logic [2:0] ipln,
+	input logic irq5_q, irq4_q,
+	input logic [2:0] fcn
 );
+	logic irq5_ack_d, irq4_ack_d;
 	wire accepted = !asn && !busn;
 	wire [23:0] address = {address_word,1'b0};
 	wire [21:0] selects = {rom_cs,ram_cs,obj_cs,vram_cs,pal_cs,romrd_cs,
@@ -30,10 +33,24 @@ module bucky_main_contract_assertions(
 			assert (!udsn || !ldsn) else $fatal(1,"protection write has no active byte lane");
 	end
 
-	always_ff @(posedge clk) if (!rst) begin
-		assert (!(irq5_ack && irq4_ack)) else $fatal(1,"simultaneous IRQ4/IRQ5 acknowledge");
-		if (irq5_ack) assert (ipln==3'b010) else $fatal(1,"IRQ5 ack while IPL is not level 5");
-		if (irq4_ack) assert (ipln==3'b011) else $fatal(1,"IRQ4 ack while IPL is not level 4");
+	always_ff @(posedge clk or posedge rst) begin
+		if (rst) begin
+			irq5_ack_d <= 1'b0;
+			irq4_ack_d <= 1'b0;
+		end else begin
+			assert (!(irq5_ack && irq4_ack)) else $fatal(1,"simultaneous IRQ4/IRQ5 acknowledge");
+			// A 68000 interrupt acknowledge keeps AS low for multiple clocks.
+			// Validate the request level only on the acknowledge edge; later
+			// held cycles legitimately see the request latch already cleared.
+			if (irq5_ack && !irq5_ack_d) assert (ipln==3'b010)
+			else $fatal(1,"IRQ5 ack while IPL is not level 5 ipln=%b q5=%b q4=%b fc=%b A=%06x",
+				ipln, irq5_q, irq4_q, fcn, address);
+			if (irq4_ack && !irq4_ack_d) assert (ipln==3'b011)
+			else $fatal(1,"IRQ4 ack while IPL is not level 4 ipln=%b q5=%b q4=%b fc=%b A=%06x",
+				ipln, irq5_q, irq4_q, fcn, address);
+			irq5_ack_d <= irq5_ack;
+			irq4_ack_d <= irq4_ack;
+		end
 	end
 endmodule
 
@@ -46,7 +63,8 @@ bind bucky_main bucky_main_contract_assertions u_bucky_main_contract_assertions(
 	.collision_cs(collision_cs),.sndirq_cs(sndirq_cs),.pair_cs(pair_cs),
 	.in0_cs(in0_cs),.in1_cs(in1_cs),.p1p3_cs(p1p3_cs),.p2p4_cs(p2p4_cs),
 	.control2_cs(control2_cs),.pair_we(pair_we),
-	.irq5_ack(irq5_ack),.irq4_ack(irq4_ack),.ipln(IPLn)
+	.irq5_ack(irq5_ack),.irq4_ack(irq4_ack),.ipln(IPLn),
+	.irq5_q(irq5_q),.irq4_q(irq4_q),.fcn(FC)
 );
 
 module bucky_dma_contract_assertions(
