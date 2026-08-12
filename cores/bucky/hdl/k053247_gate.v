@@ -127,6 +127,26 @@ wire [PW-1:0] buf_din3,  buf_din4;
 wire   [31:0] rom_sorted;
 
 wire          pre_bsy;
+wire          dr_active;
+reg           late_hs_l, discard_late_draw;
+
+// The scanner restarts at each HS even if the final tile from the preceding
+// line is still being emitted.  Once the ping-pong buffer flips, those pixels
+// no longer own the producer bank: accepting them would draw an opaque block
+// into the following line.  Drop only that in-flight tail; the next tile is
+// accepted after the draw stage becomes idle.
+always @(posedge clk, posedge rst) begin
+    if( rst ) begin
+        late_hs_l        <= 1'b0;
+        discard_late_draw<= 1'b0;
+    end else begin
+        late_hs_l <= hs;
+        if( hs && !late_hs_l && dr_active ) discard_late_draw <= 1'b1;
+        else if( !dr_active )                discard_late_draw <= 1'b0;
+    end
+end
+
+wire line_owner_ok = !discard_late_draw;
 
 assign rom_sorted = PACKED==0 ? rom_data :
 {rom_data[31], rom_data[27], rom_data[23], rom_data[19], rom_data[15], rom_data[11], rom_data[7], rom_data[3],
@@ -260,6 +280,7 @@ k053247_draw #(
     .clk        ( clk       ),
     .draw       ( dr_draw   ),
     .busy       ( pre_bsy   ),
+    .draw_busy  ( dr_active ),
     .code       ( dr_code   ),
     .xpos       ( dr_xpos   ),
     .ysub       ( dr_ysub   ),
@@ -303,18 +324,18 @@ k053247_buffer #(
     .flip       ( 1'b0      ),      // flip is solved before this instance
     .LHBL       ( ~hs       ),
     // New line writting — puerto A (px_lo)
-    .we         ( we_dly    ),
+    .we         ( we_dly  & line_owner_ok ),
     .wr_data    ( buf_din   ),
     .wr_addr    ( adly      ),
     // Puertos B/C/D (px 1/2/3) — 4 px/clk (ses.30). Con HJUMP=0/BUFDLY=0 la direccion de escritura
     // no lleva transformada (aeff=buf_addr) => van directas como buf_addr2/3/4.
-    .we2        ( buf_we2   ),
+    .we2        ( buf_we2 & line_owner_ok ),
     .wr_data2   ( buf_din2  ),
     .wr_addr2   ( buf_addr2 ),
-    .we3        ( buf_we3   ),
+    .we3        ( buf_we3 & line_owner_ok ),
     .wr_data3   ( buf_din3  ),
     .wr_addr3   ( buf_addr3 ),
-    .we4        ( buf_we4   ),
+    .we4        ( buf_we4 & line_owner_ok ),
     .wr_data4   ( buf_din4  ),
     .wr_addr4   ( buf_addr4 ),
     // Previous line reading

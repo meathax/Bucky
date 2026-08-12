@@ -6,7 +6,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 jtroot="$root/.workbench/upstream/jtcores"
 mdir="${1:-$root/obj_dir/bucky_parent_full}"
-build_jobs="${VERILATOR_BUILD_JOBS:-0}"
+build_jobs="${VERILATOR_BUILD_JOBS:-4}"
 sim_cpu="${BUCKY_SIM_CPU:-fx68k}"
 sim_fast="${BUCKY_SIM_FAST:-0}"
 sim_skip_erase="${BUCKY_SIM_SKIP_ERASE:-0}"
@@ -97,7 +97,7 @@ sources=(
     "$(native_path "$root/cores/bucky/rtl/sim/bucky_main_trace_bind.sv")"
     "$(native_path "$root/cores/bucky/rtl/sim/bucky_contract_assertions.sv")"
     "$(native_path "$root/cores/bucky/hdl/sim/tb_bucky_parent.sv")"
-    "$(native_path "$root/cores/bucky/hdl/sim/sim_sdl.cpp")"
+    "$(native_path "$root/cores/bucky/hdl/sim/sim_headless.cpp")"
 )
 if [[ "$sim_savable" == 1 ]]; then
     sources+=("$(native_path "$root/cores/bucky/hdl/sim/sim_savable.cpp")")
@@ -112,10 +112,9 @@ defs=(
     -DJTFRAME_DIALEMU_LEFT=0 -DJTFRAME_PXLCLK=8 -DJTFRAME_COLORW=8
     -DJTFRAME_BUTTONS=3 -DJTFRAME_WIDTH=384 -DJTFRAME_HEIGHT=224
     -DJTFRAME_STEREO -DJTFRAME_RELEASE -DJTFRAME_HEADER=16
-    # The DE10 SDRAM path is 64-bit burst based.  Every generated ROM/RAM
-    # cache must see the four 16-bit return beats; omitting BA0/1/2 leaves
-    # the cache half-filled and corrupts the very first 68000 reset vector.
-    -DJTFRAME_BA0_LEN=64 -DJTFRAME_BA1_LEN=64 -DJTFRAME_BA2_LEN=64
+    # Only the sprite bank consumes a four-beat line. The other generated
+    # slots use their normal two-beat caches so sparse PCM/CPU traffic does
+    # not occupy the shared SDRAM bank for unused return words.
     -DJTFRAME_BA3_LEN=64 -DJTFRAME_IOCTL_RD=128
     -DJTFRAME_TIMESTAMP=0 -DJTFRAME_LF_HW=1 -DJTFRAME_LF_VW=1
     -DJTFRAME_MR_FASTIO=0 -DSND_RAMW=13
@@ -153,8 +152,8 @@ includes=(
 
 # Verilator appends its default -Os after user CFLAGS.  Repeat -O3 last so
 # the generated model keeps native optimizer speed during long replays.
-sim_cflags='-O3 -march=native -D_GLIBCXX_USE_CXX11_ABI=0 -IC:/msys64/ucrt64/include/SDL2 -O3'
-sim_ldflags='-LC:/msys64/ucrt64/lib -lSDL2'
+sim_cflags='-O3 -march=native -D_GLIBCXX_USE_CXX11_ABI=0 -O3'
+sim_ldflags=''
 if [[ "$sim_lto" == 1 ]]; then
     sim_cflags+=' -flto'
     sim_ldflags+=' -flto'

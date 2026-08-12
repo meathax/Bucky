@@ -6,6 +6,10 @@ import xml.etree.ElementTree as ET
 
 EXPECTED = {"bucky", "buckyea", "buckyjaa", "buckyuab", "buckyaab", "buckyaa"}
 EXPECTED_RBF = "Arcade-Bucky"
+FORBIDDEN_TAGS = {
+    "about", "mratimestamp", "mameversion", "year", "manufacturer",
+    "players", "region", "homebrew", "bootleg",
+}
 PARENT_ROMS = {
     "173eab02.q6": "9b45f122",
     "173eab01.q5": "7785ac8a",
@@ -43,10 +47,9 @@ def validate(path: Path) -> str:
         errors.append("<resolution> must be 15kHz")
     if name not in EXPECTED:
         errors.append(f"unexpected setname {name!r}")
-    for tag in ("homebrew", "bootleg"):
-        value = text(root, tag)
-        if value and value not in {"yes", "no"}:
-            errors.append(f"<{tag}> must be yes/no")
+    present_forbidden = sorted(tag for tag in FORBIDDEN_TAGS if root.find(tag) is not None)
+    if present_forbidden:
+        errors.append("unused catalog metadata must be omitted: " + ", ".join(present_forbidden))
     for rom in root.findall("rom"):
         if "type" in rom.attrib:
             errors.append("ROM type attribute must be omitted")
@@ -60,8 +63,12 @@ def validate(path: Path) -> str:
     buttons = root.find("buttons")
     if buttons is None or buttons.attrib.get("count") != "3":
         errors.append("three action buttons are required")
-    if text(root, "players") != "4":
-        errors.append("four-player metadata is required")
+    if main_rom is not None and "md5" in main_rom.attrib:
+        errors.append("disabled ROM md5 attribute must be omitted")
+    if "Core credits" in (buttons.attrib.get("names", "") if buttons is not None else ""):
+        errors.append("JTFRAME Core credits button label must be omitted")
+    if "Jotego" in raw or "JTFRAME" in raw:
+        errors.append("JT/JTFRAME branding must be omitted")
     if name == "bucky":
         main_rom = root.find("rom[@index='0']")
         parts = {} if main_rom is None else {

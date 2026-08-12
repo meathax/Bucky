@@ -1,4 +1,4 @@
-# === konami-fpga — solo el código fuente del core va al repo ===
+# Bucky source repository: never commit local ROMs, generated builds or run evidence.
 
 # ROMs / firmware / material con copyright (cada uno aporta las suyas)
 *.bin
@@ -9,6 +9,12 @@
 *.pdf
 *.nv
 *.png
+*.jpg
+*.jpeg
+*.ppm
+*.wav
+*.mp3
+*.mp4
 *.svg
 *.ods
 rom/
@@ -37,6 +43,7 @@ obj_dir/
 *.vvp
 *.exe
 *.jsonl
+!cores/bucky/cfg/gameplay-right.inputs.jsonl
 *_reads.txt
 *_writes.txt
 snd_latch_reads.txt
@@ -45,6 +52,11 @@ nvram/
 artifacts/
 checkpoints/
 .workbench/
+.codex-mister-build/
+.tmp-verilator/
+.mister/
+/cfg/
+snap/
 cores/**/mister/
 
 # SO / editores
@@ -57,7 +69,27 @@ Desktop.ini
 
 releases/
 cores/**/releases/
+!cores/bucky/releases/
+!cores/bucky/releases/*.mra
+
+__pycache__/
+*.pyc
+run.log
 
 # Excepción: las tablas Q16 generadas del k054539 (voltab/pantab/rram_zero) NO son copyright y las
 # necesita la síntesis ($readmemh) → SÍ van al repo. (Solo las de hdl/, nunca ROMs sueltas.)
-!cores/**/hdl/*.hex
+!cores/bucky/hdl/*.hex
+
+# MISTER-FPGA-AUTOPILOT-V4 START
+.mister/runs/*
+!.mister/runs/.gitkeep
+.mister/cache/*
+!.mister/cache/.gitkeep
+.mister/reports/*
+!.mister/reports/.gitkeep
+.mister/state.json
+.mister/release/
+.mister/provenance/licenses/*
+!.mister/provenance/licenses/.gitkeep
+.mister/donors/
+# MISTER-FPGA-AUTOPILOT-V4 END

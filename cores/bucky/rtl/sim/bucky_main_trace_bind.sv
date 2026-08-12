@@ -69,6 +69,64 @@ module bucky_main_trace_bind(
 		.pc(pc_debug), .rnw(rnw), .address({8'd0,address}), .data(data),
 		.lanes(lanes), .device(device_for(address))
 	);
+
+	bucky_producer_trace u_producer_trace(
+		.clk(clk), .reset(rst), .completed(completed), .pc(pc_debug),
+		.rnw(rnw), .address(address), .data(data), .lanes(lanes)
+	);
+endmodule
+
+// Simulation-only strict selected-domain trace.  Every completed main-CPU
+// access in each selected window is emitted; sequence numbers count selected
+// events only and therefore expose any missing or reordered event directly.
+module bucky_producer_trace(
+	input logic        clk,
+	input logic        reset,
+	input logic        completed,
+	input logic [31:0] pc,
+	input logic        rnw,
+	input logic [23:0] address,
+	input logic [15:0] data,
+	input logic [1:0]  lanes
+);
+	integer fd;
+	integer seq;
+	string trace_file;
+	logic enabled;
+	wire selected = (address >= 24'h080050 && address <= 24'h080068) ||
+	                (address >= 24'h080940 && address <= 24'h08094e) ||
+	                (address >= 24'h08f000 && address <= 24'h08f006);
+	wire [15:0] normalized_data = {
+		lanes[1] ? data[15:8] : 8'h00,
+		lanes[0] ? data[7:0]  : 8'h00
+	};
+
+	initial begin
+		enabled = $value$plusargs("EEP_TRACE_FILE=%s", trace_file);
+		fd = 0;
+		seq = 0;
+		if (enabled) begin
+			fd = $fopen(trace_file, "w");
+			if (fd == 0) $fatal(1, "cannot open producer trace %s", trace_file);
+		end
+	end
+
+	always @(posedge clk) begin
+		if (enabled && !reset && completed && selected) begin
+			$fwrite(fd, "{\"domain\":\"eeprom_workram\",\"seq\":%0d,\"event\":\"bus\",\"phase\":\"completed\",\"rw\":\"%s\",\"address\":%0d,\"data\":%0d,\"byte_enable\":%0d,\"width_bits\":16,\"pc\":%0d,\"reset_epoch\":1}\n",
+				seq, rnw ? "R" : "W", address, normalized_data, lanes, pc);
+			$fflush(fd);
+			seq <= seq + 1;
+		end
+	end
+
+	final begin
+		if (fd != 0) begin
+			$display("[EEP_TRACE] events=%0d file=%s", seq, trace_file);
+			$fflush(fd);
+			$fclose(fd);
+		end
+	end
 endmodule
 
 bind bucky_main bucky_main_trace_bind u_bucky_main_trace_bind(

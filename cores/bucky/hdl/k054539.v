@@ -78,12 +78,19 @@ initial for (gi=0; gi<512; gi=gi+1) regs[gi] = 8'd0;
 
 wire update_at_keyon = regs[9'h12f][0];
 wire reg_updates     = ~regs[9'h12f][7];
+wire [7:0] keyon_retrigger = (cs && we && (addr == 9'h114) && reg_updates) ?
+                              din : 8'h00;
 
 assign dout    = (addr == 9'h12c) ? active :
                  (addr == 9'h12d) ? ((rd && regs[9'h12f][4]) ?
-                                      (regs[9'h12e] == 8'h80 ? rram_port_dout : rb_data) : 8'h00) :
+                                      (regs[9'h12e] == 8'h80 ? rr_cpu_data : rb_data) : 8'h00) :
                  regs[addr];
-assign timeout = 1'b0;
+// A real K054539 commits one mix every 384 input clocks.  Missing a boundary
+// makes the serialized FPGA implementation wait a whole extra period, which
+// is heard as pitch slowdown/warble.  Keep this pulse available as a release
+// diagnostic and as a hard regression contract.
+assign timeout = cen && (sample_cnt == 9'd0) &&
+                 ((state != S_IDLE) || rb_active);
 assign st_dout = 8'd0;
 
 // ---------------------------------------------------------------------------
@@ -138,14 +145,20 @@ reg         sample_rom_cs;
 reg  [23:0] sample_rom_addr;
 
 reg         rb_pending, rb_active, rb_read_seen, rb_data_valid;
+reg         rr_cpu_read_seen, rr_cpu_data_valid;
 reg  [23:0] rb_addr_l;
-reg   [7:0] rb_data;
+reg  [14:0] rr_cpu_addr_l;
+reg   [7:0] rb_data, rr_cpu_data;
 wire        rb_rom_bank = regs[9'h12e] != 8'h80;
 wire        rb_cpu_read = cs && rd && (addr == 9'h12d) && regs[9'h12f][4] && rb_rom_bank;
+wire        rr_cpu_read = cs && rd && (addr == 9'h12d) &&
+                          (regs[9'h12e] == 8'h80) && regs[9'h12f][4];
 
 assign rom_cs   = sample_rom_cs | rb_active;
 assign rom_addr = rb_active ? rb_addr_l : sample_rom_addr;
-assign rb_wait  = rb_pending | rb_active | (rb_cpu_read && !rb_data_valid);
+assign rb_wait  = rb_pending | rb_active |
+                  (rb_cpu_read && !rb_data_valid) |
+                  (rr_cpu_read && !rr_cpu_data_valid);
 
 // acumuladores en Q16 (como MAME: suma en full-precision, >>16 UNA vez al final)
 reg signed [39:0] accL, accR;
@@ -160,43 +173,75 @@ reg signed [39:0] accL, accR;
 // Init 0 via $readmemh (NO `initial for`: Quartus limita el desenrollado a 5000 iter -> Error 10106
 // con 8192; Verilator/lint lo tragan -> nueva cara del C-06). rram_zero.hex = 8192x"0000".
 // ---------------------------------------------------------------------------
-reg  signed [15:0] rram    [0:8191];
-reg  signed [15:0] rram_hi [0:8191];
-initial $readmemh("rram_zero.hex", rram);
-initial $readmemh("rram_zero.hex", rram_hi);
 reg  [16:0] read_ptr;             // K054539 0x22d pointer, wraps at 0x1ffff
 reg  [12:0] reverb_pos;
 reg  [12:0] rr_addr;             // direccion de ESCRITURA (clear @revpos / RMW @widx)
 reg         rr_we;
 reg  signed [15:0] rr_din;
-reg  signed [15:0] rr_dout;      // lectura registrada de rram[rd_addr] (1 ciclo de latencia)
 wire [14:0] rr_port_addr = {read_ptr[16], read_ptr[13:0]};
 // direccion de LECTURA combinacional: en S_MIX lee @widx (para el RMW del canal en S_RVWR);
 // en cualquier otro estado lee @reverb_pos (feedback, usado en S_REVRD tras emitir en S_IDLE).
 wire [12:0] rd_addr = (state==S_MIX) ? widx : reverb_pos;
-always @(posedge clk) begin
-    rr_dout <= rram[rd_addr];
-    if (rr_we) rram[rr_addr] <= rr_din;
-    // The hardware exposes the complete reverb store as a byte-wide data
-    // port.  The audio path owns the lower 0x4000 bytes; the upper half is
-    // retained in a second BRAM bank selected by pointer bit 16.
-    if (cs && we && (addr == 9'h12d) && (regs[9'h12e] == 8'h80)) begin
-        if (!rr_port_addr[0]) begin
-            if (rr_port_addr[14]) rram_hi[rr_port_addr[13:1]][7:0]  <= din;
-            else                  rram[rr_port_addr[13:1]][7:0]     <= din;
-        end else begin
-            if (rr_port_addr[14]) rram_hi[rr_port_addr[13:1]][15:8] <= din;
-            else                  rram[rr_port_addr[13:1]][15:8]    <= din;
-        end
-    end
-end
 
-wire [15:0] rram_port_word = rr_port_addr[14] ?
-                              rram_hi[rr_port_addr[13:1]] :
-                              rram[rr_port_addr[13:1]];
-wire [7:0] rram_port_dout = rr_port_addr[0] ?
-                             rram_port_word[15:8] :
-                             rram_port_word[7:0];
+// The reverb store has two independent 0x4000-byte banks.  Keep the CPU
+// data port on RAM port 0 and the audio read/modify/write path on port 1 so
+// Quartus can infer two dual-port M10K memories instead of expanding the
+// 262,144 bits into registers.  The CPU read is deliberately registered and
+// participates in rb_wait below, matching the existing wait-state contract
+// used by the serial ROM data port.
+wire        rr_cpu_write = cs && we && (addr == 9'h12d) &&
+                           (regs[9'h12e] == 8'h80);
+wire [1:0]  rr_cpu_we = rr_cpu_write ?
+                        (rr_port_addr[0] ? 2'b10 : 2'b01) : 2'b00;
+wire [15:0] rr_cpu_din = rr_port_addr[0] ? {din,8'h00} : {8'h00,din};
+wire [15:0] rr_lo_cpu_q, rr_hi_cpu_q, rr_audio_q;
+wire [12:0] rr_cpu_word_addr = rr_cpu_read_seen ? rr_cpu_addr_l[13:1] :
+                                                   rr_port_addr[13:1];
+wire [15:0] rr_cpu_q = rr_cpu_addr_l[14] ? rr_hi_cpu_q : rr_lo_cpu_q;
+wire signed [15:0] rr_dout = rr_audio_q;
+
+jtframe_dual_ram16 #(
+    .AW          ( 13 ),
+    .SIMHEXFILE_LO( "rram_zero.hex" ),
+    .SIMHEXFILE_HI( "rram_zero.hex" ),
+    .SYNFILE_LO  ( "rram_zero.hex" ),
+    .SYNFILE_HI  ( "rram_zero.hex" )
+) u_rram_lo (
+    .clk0  ( clk           ),
+    .data0 ( rr_cpu_din    ),
+    .addr0 ( rr_cpu_word_addr ),
+    .we0   ( rr_port_addr[14] ? 2'b00 : rr_cpu_we ),
+    .q0    ( rr_lo_cpu_q   ),
+    .clk1  ( clk           ),
+    .data1 ( rr_din        ),
+    .addr1 ( rr_addr       ),
+    .we1   ( rr_we ? 2'b11 : 2'b00 ),
+    .q1    ( rr_audio_q    )
+);
+
+jtframe_dual_ram16 #(
+    .AW          ( 13 ),
+    .SIMHEXFILE_LO( "rram_zero.hex" ),
+    .SIMHEXFILE_HI( "rram_zero.hex" ),
+    .SYNFILE_LO  ( "rram_zero.hex" ),
+    .SYNFILE_HI  ( "rram_zero.hex" )
+) u_rram_hi (
+    .clk0  ( clk           ),
+    .data0 ( rr_cpu_din    ),
+    .addr0 ( rr_cpu_word_addr ),
+    .we0   ( rr_port_addr[14] ? rr_cpu_we : 2'b00 ),
+    .q0    ( rr_hi_cpu_q   ),
+    .clk1  ( clk           ),
+    .data1 ( 16'h0000      ),
+    .addr1 ( 13'd0         ),
+    .we1   ( 2'b00         ),
+    .q1    (               )
+);
+
+wire [15:0] rram_port_word = rr_cpu_q;
+wire [7:0] rram_port_dout = rr_cpu_addr_l[0] ?
+                              rram_port_word[15:8] :
+                              rram_port_word[7:0];
 
 // --- volumen L/R del canal en curso (Q16) ---
 wire [16:0] vt   = {1'b0, voltab[w_vol]};
@@ -287,6 +332,10 @@ always @(posedge clk) begin
         rb_active <= 1'b0;
         rb_read_seen <= 1'b0;
         rb_data_valid <= 1'b0;
+        rr_cpu_read_seen <= 1'b0;
+        rr_cpu_data_valid <= 1'b0;
+        rr_cpu_data <= 8'd0;
+        rr_cpu_addr_l <= 15'd0;
         rb_addr_l <= 24'd0;
         rb_data <= 8'd0;
         reverb_pos <= 0; rr_we <= 0; rr_addr <= 0; rr_din <= 0;   // reverb (rram init por `initial`)
@@ -315,7 +364,28 @@ always @(posedge clk) begin
                 rb_addr_l  <= {regs[9'h12e][6:0], read_ptr};
             end
         end
-        if (rb_pending && !rb_active && (state == S_IDLE)) begin
+
+        // The dual-port RAM presents the reverb data-port byte one clock
+        // after the CPU read begins.  Hold the Z80 cycle until that output is
+        // valid, just as for a serialized ROM-bank read.
+        if (!rr_cpu_read) begin
+            rr_cpu_read_seen <= 1'b0;
+            rr_cpu_data_valid <= 1'b0;
+        end else if (!rr_cpu_read_seen) begin
+            rr_cpu_read_seen <= 1'b1;
+            rr_cpu_data_valid <= 1'b0;
+            rr_cpu_addr_l <= rr_port_addr;
+        end else begin
+            // Capture the registered RAM result before the live serial
+            // pointer selects the following byte.
+            rr_cpu_data <= rram_port_dout;
+            rr_cpu_data_valid <= 1'b1;
+        end
+        // Use only idle slack for the CPU data port. The physical K054539
+        // keeps its 48 kHz stream running while this port is accessed, so a
+        // diagnostic read must never freeze the sample counter.
+        if (rb_pending && !rb_active && (state == S_IDLE) &&
+            (sample_cnt != 9'd0) && (sample_cnt < 9'd320)) begin
             rb_pending <= 1'b0;
             rb_active  <= 1'b1;
         end
@@ -344,7 +414,12 @@ always @(posedge clk) begin
                     // copy the three latched position bytes atomically.
                     if (reg_updates) begin
                         active  <= active | din;
-                        restart <= restart | (din & ~active);
+                        // Key-on restarts every selected voice, including a
+                        // voice whose active bit is already set.  Bucky
+                        // rapidly reuses voices for event effects; suppressing
+                        // an active-to-active retrigger leaves the new sample
+                        // position latch unconsumed and silences later SFX.
+                        restart <= restart | din;
                     end
                     if (update_at_keyon) begin
                         for (ci=0; ci<8; ci=ci+1) begin
@@ -368,18 +443,19 @@ always @(posedge clk) begin
         // available immediately through rram_port_dout above.
         if (cs && we && (addr == 9'h12d))
             read_ptr <= read_ptr + 17'd1;
-        else if (cs && rd && (addr == 9'h12d) && regs[9'h12f][4])
+        else if ((rb_cpu_read && !rb_read_seen) ||
+                 (rr_cpu_read && !rr_cpu_read_seen))
             read_ptr <= read_ptr + 17'd1;
         else if (cs && we && (addr == 9'h12e))
             read_ptr <= 17'd0;
 
-        if (cen && !rb_active) begin
+        if (cen) begin
             sample_cnt <= (sample_cnt == 9'd383) ? 9'd0 : sample_cnt + 9'd1;
             sample_rom_cs <= 1'b0;
             rr_we  <= 1'b0;   // por defecto sin escritura de reverb (patron rom_cs)
 
             case (state)
-            S_IDLE: if (sample_cnt == 9'd0) begin
+            S_IDLE: if ((sample_cnt == 9'd0) && !rb_active) begin
                         ch <= 0;
                         if (regs[9'h12f][0]) begin
                             state <= S_REVRD;   // rd_addr=reverb_pos (emitido); rr_dout listo en S_REVRD
@@ -414,7 +490,9 @@ always @(posedge clk) begin
                             w_pos   <= {regs[b1+9'he], regs[b1+9'hd], regs[b1+9'hc]} << 1;
                             w_pfrac <= delta_signed;                     // (0<<1)=0, +/-delta
                             w_val   <= 0; w_pval <= 0;
-                            restart[ch] <= 1'b0;
+                            // Do not lose a same-clock CPU retrigger while
+                            // the sample sequencer consumes the old request.
+                            restart[ch] <= keyon_retrigger[ch];
                         end else begin
                             // frac<<1; si bit16 -> pos|1, frac&0xffff; luego +delta
                             w_pos   <= ({cpos[ch],1'b0}) | (cpfrac[ch][15] ? 25'd1 : 25'd0);
@@ -427,7 +505,7 @@ always @(posedge clk) begin
                             w_pos   <= {1'b0, regs[b1+9'he], regs[b1+9'hd], regs[b1+9'hc]};
                             w_pfrac <= delta_signed;
                             w_val   <= 0; w_pval <= 0;
-                            restart[ch] <= 1'b0;
+                            restart[ch] <= keyon_retrigger[ch];
                         end else begin
                             w_pos   <= {1'b0, cpos[ch]};
                             w_pfrac <= $signed({16'b0, cpfrac[ch]}) + delta_signed;

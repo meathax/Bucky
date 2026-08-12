@@ -1,5 +1,6 @@
 param(
 	[string]$StagedCore,
+	[string]$GeneratedWrapper,
 	[string]$MapReport,
 	[switch]$RequireGenerated
 )
@@ -77,12 +78,23 @@ if (-not [string]::IsNullOrWhiteSpace($StagedCore)) {
 			throw "Generated files.qip includes disconnected or foreign RTL: $name"
 		}
 	}
-	$wrapper = Join-Path $generatedDir 'jtbucky_game_sdram.v'
+	$wrapper = if ([string]::IsNullOrWhiteSpace($GeneratedWrapper)) {
+		Join-Path $generatedDir 'jtbucky_game_sdram.v'
+	} else {
+		(Resolve-Path -LiteralPath $GeneratedWrapper).Path
+	}
 	$ports = Join-Path $generatedDir 'mem_ports.inc'
 	foreach ($path in @($wrapper, $ports)) {
 		if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
 			throw "Generated JTFRAME artifact is missing: $path"
 		}
+	}
+	$wrapperText = Get-Content -Raw -LiteralPath $wrapper
+	if ($wrapperText -notmatch 'cowboys_lyro64\s*#\s*\(') {
+		throw 'Generated JTFRAME wrapper does not instantiate cowboys_lyro64 on the sprite bank'
+	}
+	if ($wrapperText -match 'jtframe_rom_1slot\s*#\s*\([\s\S]*?// lyro[\s\S]*?\)\s*u_bank3') {
+		throw 'Generated JTFRAME wrapper still instantiates the stock sprite bank slot'
 	}
 }
 

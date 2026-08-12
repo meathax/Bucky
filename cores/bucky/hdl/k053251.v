@@ -13,21 +13,17 @@
     along with JTCORES.  If not, see <http://www.gnu.org/licenses/>.
 
     Base: jtcolmix_053251 (Jose Tejada Gomez / @topapate, 23-7-2023).
-    Fork COWBOYS (ses.38, 2026-07-21): codificador de prioridades K053251 propio, FIEL AL SILICIO.
+    Fork COWBOYS (ses.38, 2026-07-21): codificador de prioridades K053251 propio.
 
-    ⭐ ÚNICO cambio respecto a jtcolmix: la DIRECCIÓN de la comparación de sombra (SDO).
-       El esquemático de silicio de furrtek (053251_schematics.pdf, pág.8 COMPARATORS + pág.9 SHADOW,
-       Sean Gonsalves 16/02/2025) anota el comparador de sombra como "Low when winning >= PRSHA" =>
-       SELSHA = (winning_pri < PRSHA). El .v de furrtek (2020) coincide. jtcolmix (2023) usaba la
-       comparación OPUESTA (PRSHA < winning) => sombra invertida. Aquí se corrige.
-       Método verificado contra fuente independiente: el mismo decode aplicado a BRIT ("Low when
-       winning >= REG5") da BRIT=winning>=REG5, idéntico a la prosa del README de furrtek => la
-       regla de lectura de anotaciones es correcta. Detalle: research/K053251-PRIORITY-FIDELITY.md.
-    El resto es idéntico a jtcolmix (transparencia, mux de prioridad, cascada L1..L4, índice de salida,
-    BRIT) — todo ya validado pixel-exacto contra el golden y confirmado vs el esquemático.
+    Shadow ordering follows the chip's documented numeric priority convention:
+    lower values are in front.  A shadow at PRSHA therefore affects the winning
+    layer only when PRSHA < winning_pri.  The previous fork interpreted an
+    active-low schematic annotation backwards and inverted this comparison;
+    Bucky's boot values (PRSHA=5, background priority=16) then rejected the
+    ordinary character/ship shadows seen on the PCB.
 */
 
-// Color mixer compatible with K053251 — fork COWBOYS con la sombra fiel al esquemático de furrtek
+// Color mixer compatible with K053251 — COWBOYS fork
 
 module k053251(
     input             rst,
@@ -181,9 +177,9 @@ always @(posedge clk, posedge rst) begin
                 col4_n<= l4 ? pre_n[4] : col3_n;
             end
             5: begin
-                // ⭐ FIEL AL SILICIO: SELSHA = winning_pri < PRSHA (esquemático furrtek pág.8-9).
-                //    jtcolmix tenía `shd_p < mix4p` (OPUESTO) => sombra invertida. Ver cabecera.
-                shd_sel <= mix4p < shd_p;
+                // Numerically lower priority is in front.  Let a foreground
+                // shadow affect only a winning layer behind its threshold.
+                shd_sel <= shd_p < mix4p;
             end
             default:;
         endcase

@@ -20,11 +20,25 @@ MAIN_SLOT_DERIVED = """    // main
     .SLOT1_DW(16)
 """
 
+SPRITE_SLOT = """jtframe_rom_1slot #(
+    .SDRAMW(SDRAMW-1),
+    // lyro
+    .SLOT0_AW(22),
+    .SLOT0_DW(32)
+`ifdef JTFRAME_BA3_LEN
+    ,.SLOT0_DOUBLE(1)
+`endif
+) u_bank3("""
+
+SPRITE_SLOT_DERIVED = """// One aligned 64-bit fetch supplies both 32-bit halves of a sprite row.
+// This is a direct bank interface, so BA3 must retain its four-beat burst.
+cowboys_lyro64 #(
+    .SDRAMW(SDRAMW-1)
+) u_bank3("""
+
 # The parent Verilator bench initializes its behavioral RAM array to zero.  The
 # generated JTFRAME wrapper's default RAM erase would otherwise replay 131072
 # SDRAM writes before releasing the CPU reset, dominating every audio run.
-# This derived wrapper is simulation-only; Quartus still uses the unmodified
-# core manifest and keeps the hardware erase contract.
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=Path)
@@ -49,6 +63,17 @@ def main() -> None:
         )
     else:
         derived = source.replace(MAIN_SLOT, MAIN_SLOT_DERIVED)
+
+    sprite_count = derived.count(SPRITE_SLOT)
+    if sprite_count == 1:
+        derived = derived.replace(SPRITE_SLOT, SPRITE_SLOT_DERIVED)
+    elif sprite_count == 0 and "cowboys_lyro64 #(\n    .SDRAMW(SDRAMW-1)" in derived:
+        pass
+    else:
+        raise SystemExit(
+            f"expected exactly one stock or derived Bucky sprite SDRAM slot in "
+            f"{args.source}, found {sprite_count} stock instances"
+        )
     if args.skip_ram_erase and "SLOT0_ERASE(0)" not in derived:
         ram_slot = "    .SLOT0_AW(17),\n    .SLOT0_DW(16),"
         if derived.count(ram_slot) != 1:

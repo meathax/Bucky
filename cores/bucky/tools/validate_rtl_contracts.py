@@ -136,6 +136,22 @@ def main() -> int:
     for pattern in RTL_CONTRACTS:
         require(pattern, main_text, "bucky_main.v")
 
+    # JTFRAME supplies active-low service and test signals.  Keep the OSD test
+    # control enabled and preserve both signals without polarity inversion at
+    # the GX173 input ports.
+    macros_text = (core / "cfg" / "macros.def").read_text(encoding="utf-8")
+    require(r"(?m)^JTFRAME_OSD_TEST\s*$", macros_text, "macros.def")
+    game_text = (hdl / "jtbucky_game.v").read_text(encoding="utf-8")
+    require(r"\.service\s*\(\s*\{4\{service\}\}\s*\)", game_text,
+            "jtbucky_game.v")
+    require(r"\.dip_test\s*\(\s*dip_test\s*\)", game_text, "jtbucky_game.v")
+    require(r"if\s*\(\s*in0_cs\s*\)\s*port_in\s*=\s*"
+            r"\{\s*8'hff\s*,\s*service\[3:0\]\s*,\s*coin\[3:0\]\s*\}",
+            main_text, "bucky_main.v")
+    require(r"if\s*\(\s*in1_cs\s*\)\s*port_in\s*=\s*"
+            r"\{\s*8'hff\s*,\s*dipsw\[23:20\]\s*,\s*dip_test\s*,\s*1'b1\s*,"
+            r"\s*eep_rdy\s*,\s*eep_do\s*\}", main_text, "bucky_main.v")
+
     dma_text = (hdl / "k053246_dma.v").read_text(encoding="utf-8")
     require(r"if\( rst \) dmaen_l <= 1'b0", dma_text, "k053246_dma.v")
     require(r"dma_ok\s*<=\s*0;.*lvbl_sh\s*<=\s*0", dma_text, "k053246_dma.v")
@@ -183,7 +199,7 @@ def main() -> int:
         if policy.get(key) is not True:
             raise ValueError(f"checkpoint policy must enable {key}")
 
-    print("PASS: static GX173 map/lane/IRQ/protection/source/memory contracts")
+    print("PASS: static GX173 map/lane/IRQ/input/protection/source/memory contracts")
     return 0
 
 

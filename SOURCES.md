@@ -12,7 +12,7 @@ hardware truth where its driver is marked imperfect.
 | MAME executable | SHA-256 `AF6966108D9B52C22465C6D50F4E5D50CC371B50F2D27DC443935F287AAD37A3` | Local reference executable | Deterministic reference runs through MAME MCP |
 | jtcores | `1be22f172898aa2cc3db50ad372db928ed823fd2` | Per-source GPL-compatible notices retained | JTFRAME, fx68k, Z80, JT51 and MiSTer build framework |
 | Template_MiSTer | `b4726d2dd8cfad67db3f8ba060aa4e8c13047662` | Upstream notices retained | Official standalone MiSTer packaging reference |
-| Existing Moo Mesa core | [`jlrh/konami-fpga`](https://github.com/jlrh/konami-fpga/tree/5e890383/cores/moomesa), commit `5e890383`; local `cores/moomesa` mirror | GPLv3 | GX151/GX173-family CPU, video, sound, SDRAM and I/O baseline; common sprite/tile RTL was adapted into Bucky with GX173-specific map and color/timing changes |
+| Existing Moo Mesa core | [`jlrh/konami-fpga`](https://github.com/jlrh/konami-fpga/tree/5e890383/cores/moomesa), commit `5e890383` | GPLv3 | GX151/GX173-family CPU, video, sound, SDRAM and I/O donor; the required common RTL was adapted into the independent Bucky source tree with GX173-specific map and color/timing changes |
 | Bucky ROM archive | SHA-256 `D9EAB6109959A7A77E83871EA775954D10F0A607FA320B81D75713DC12F38987` | Private; never committed or redistributed | Local validation of the six MAME sets |
 
 The complete pinned evidence is kept under ignored `.workbench/upstream/`. No SiliconRE HDL is linked

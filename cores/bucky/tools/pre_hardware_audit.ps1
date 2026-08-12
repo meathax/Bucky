@@ -14,7 +14,14 @@ function Invoke-Checked([string]$program, [string[]]$arguments) {
 # This gate is intentionally parent-only and stops before Quartus/RBF work.
 Invoke-Checked 'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $bucky 'tools\validate_source.ps1'))
 Invoke-Checked 'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $bucky 'tools\audit_rtl_placement.ps1'))
-Invoke-Checked 'python' @((Join-Path $bucky 'tools\validate_jtframe.py'), (Join-Path $root '.workbench\upstream\jtcores\cores\bucky'))
+$stagedCore = Join-Path $root '.workbench\upstream\jtcores\cores\bucky'
+$generatedWrapper = Join-Path $root '.workbench\generated\jtbucky_game_sdram.v'
+Invoke-Checked 'python' @(
+	(Join-Path $bucky 'tools\prepare_bucky_sdram.py'),
+	(Join-Path $stagedCore 'mister\jtbucky_game_sdram.v'),
+	$generatedWrapper
+)
+Invoke-Checked 'python' @((Join-Path $bucky 'tools\validate_jtframe.py'), $stagedCore, $generatedWrapper)
 
 $yosys = (Get-Command yosys -ErrorAction Stop).Source
 $checks = @(

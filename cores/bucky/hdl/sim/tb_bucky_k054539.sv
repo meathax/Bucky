@@ -39,6 +39,9 @@ module tb_bucky_k054539;
         begin
             @(negedge clk); addr=a; cs=1; we=0; rd=1;
             #1;
+            while (rb_wait) begin
+                @(posedge clk); #1;
+            end
             if (dout !== expected) begin
                 $display("FAIL K054539 read addr=%03x expected=%02x actual=%02x",a,expected,dout);
                 failures=failures+1;
@@ -68,7 +71,36 @@ module tb_bucky_k054539;
         expect_reg(9'h00c,8'h00);
         wr(9'h114,8'h01);
         expect_reg(9'h00c,8'h12);
+
+        // A key-on command retriggers a voice even when it is already
+        // active.  Bucky reuses the PCM voices for short event effects; if
+        // the active bit suppresses restart, later coin/impact/voice samples
+        // continue from the previous position and are effectively silent.
+        // MAME commits the new position latch on every key-on.
+        cen=1;
+        wait (!dut.restart[0]);  // first key-on has been consumed by S_LOAD
+        @(posedge clk); #1;
+        cen=0;
+        wr(9'h00c,8'h34);
+        wr(9'h00d,8'h12);
+        wr(9'h00e,8'h00);
+        expect_reg(9'h00c,8'h12); // still hidden while channel is active
+        wr(9'h114,8'h01);         // re-key the already-active channel
+        expect_reg(9'h00c,8'h34);
+        expect_reg(9'h00d,8'h12);
+        if (!dut.restart[0]) begin
+            $display("FAIL K054539 active voice did not re-arm restart on key-on");
+            failures=failures+1;
+        end
         wr(9'h115,8'h01);
+
+        // Move the fixed-rate counter into its post-boundary idle window
+        // with every voice off. The data-port arbiter intentionally refuses
+        // to start a CPU ROM read exactly on a sample boundary.
+        cen=1;
+        repeat(40) @(posedge clk);
+        wait(dut.state == 4'd0);
+        cen=0;
 
         // ROM-bank data-port readback is serialized through the shared ROM
         // request and advertises a Z80 wait until rom_ok arrives.

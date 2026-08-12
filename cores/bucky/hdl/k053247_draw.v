@@ -50,6 +50,7 @@ module k053247_draw#( parameter
 
     input               draw,
     output              busy,
+    output              draw_busy,
     input    [CW-1:0]   code,
     input    [AW-1:0]   xpos,
     input      [ 3:0]   ysub,
@@ -100,6 +101,7 @@ wire [3:0] fc_ysubf = fc_ysub ^ {4{fc_vflip}};
 wire       fc_nz    = hzoom==HZONE || hzoom==0;
 
 assign busy = f_st!=F_IDLE;   // al scan: FETCH ocupado (draw puede seguir pintando el tile anterior)
+assign draw_busy = d_busy;     // ownership guard: actual line-buffer writer is active
 
 // ── ETAPA DRAW: dibuja desde pre_data (sin esperar ROM) ────────────────────────────────────────
 reg  [63:0] d_data;

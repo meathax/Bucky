@@ -21,6 +21,8 @@ JTFRAME_COLORW=8
 JTFRAME_WIDTH=384
 JTFRAME_HEIGHT=224
 JTFRAME_STEREO
+# Expose JTFRAME's keyboard/OSD test control as the active-low dip_test input.
+JTFRAME_OSD_TEST
 
 JTFRAME_CREDITS_HSTART=24
 JTFRAME_MR_DDRLOAD
@@ -28,13 +30,9 @@ JTFRAME_MR_DDRLOAD
 # More RAM needed
 SND_RAMW=13
 
-# ses.34: lyro (banco 3, sprites) a burst-4 (64 bits) -> BURSTLEN=64 global. Lo consume el slot custom
-# cowboys_lyro64 (block-cache de linea 64-bit): 1 lectura de bus por tile en vez de 2 -> corte del vagon
-# 16.62%->7.23% en el oraculo fiel. Patron probado (cps1/outrun/twin16; simson lo trae comentado).
-# ⚠ Regenera el qsf: si NO regeneras, anade tambien VERILOG_MACRO JTFRAME_BA3_LEN=64 al moomesa.qsf a mano.
-JTFRAME_BA0_LEN=64
-JTFRAME_BA1_LEN=64
-JTFRAME_BA2_LEN=64
+# The sprite line cache consumes four 16-bit beats per aligned row. Keep only
+# bank 3 doubled: forcing doubled caches on main, byte-wide PCM/Z80 and tile
+# banks wastes shared SDRAM service time without increasing useful payload.
 JTFRAME_BA3_LEN=64
 
 # default EEPROM needed to prevent game from booting upside down with error
@@ -43,6 +41,10 @@ JTFRAME_IOCTL_RD=128
 [mister]
 JTFRAME_ARX=4
 JTFRAME_ARY=3
+# Match the stock MiSTer OSD background (OSD_COLOR=3'd4). Its background
+# channel prefixes are 01/00/00; JTFRAME accepts those two-bit prefixes
+# directly, so 6'b010000 replaces its grey 6'b111111 default.
+JTFRAME_OSDCOLOR=16
 JTFRAME_OSD_NOLOGO
 
 [mist|sidi]

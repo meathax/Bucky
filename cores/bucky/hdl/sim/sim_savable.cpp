@@ -15,7 +15,7 @@
 #include <stdlib.h>
 #endif
 
-extern "C" int bucky_sdl_take_save_request();
+extern "C" int bucky_capture_take_save_request();
 
 static uint64_t simulation_time = 0;
 double sc_time_stamp() { return static_cast<double>(simulation_time); }
@@ -178,7 +178,7 @@ int main(int argc, char** argv) {
                 automatic_saved = true;
             }
         }
-        if (bucky_sdl_take_save_request()) {
+        if (bucky_capture_take_save_request()) {
             const auto manual_path = save_path.empty()
                 ? std::string{"bucky-manual.vltsv"} : save_path;
             save_state(*top, half_step, manual_path);

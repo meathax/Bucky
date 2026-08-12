@@ -70,6 +70,7 @@ assign main_din = 0;
 wire        [ 7:0]  cpu_dout, cpu_din,  ram_dout, fm_dout,
                     k39_dout, latch_dout;
 wire                k39_rb_wait;
+wire                k39_timeout;
 wire        [ 3:0]  rom_hi;
 reg         [ 3:0]  bank;
 wire        [15:0]  A;
@@ -247,7 +248,7 @@ k054539 #(.VOLSHIFT(1)) u_k054539(
     .rst        ( rst       ),
     .clk        ( clk       ),
     .cen        ( cen_pcm   ),
-    .timeout    (           ),
+    .timeout    ( k39_timeout ),
     // CPU interface
     .addr       ({A[9],A[7:0]}),
     .we         ( ~wr_n     ),

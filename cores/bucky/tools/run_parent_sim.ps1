@@ -5,6 +5,7 @@ param(
 	[int] $MaxCycles = 0,
 	[int] $TraceMax = 100000,
 	[string] $TraceFile = '',
+	[string] $ProducerTraceFile = '',
 	[switch] $Diagnostics,
 	[switch] $PixelDiagnostics,
 	[switch] $PaletteDiagnostics,
@@ -27,12 +28,16 @@ param(
 	[int] $Button1Frame = -1,
 	[int] $Button1Period = -1,
 	[int] $Button1End = -1,
+	[int] $Button3Frame = -1,
+	[int] $Button3Period = -1,
+	[int] $Button3End = -1,
 	[int] $RightStart = -1,
 	[int] $RightEnd = -1,
 	[int] $InputPulse = 2,
 	[int] $CoinPulse = -1,
 	[int] $StartPulse = -1,
 	[int] $Button1Pulse = -1,
+	[int] $Button3Pulse = -1,
 	[switch] $InputDiagnostics,
 	[switch] $GameplayDiagnostics,
 	[switch] $ObjectDiagnostics,
@@ -64,6 +69,7 @@ param(
 	[string] $AudioFile = '',
 	[int] $AudioStartFrame = -1,
 	[int] $AudioEndFrame = -1,
+	[int] $HostTimeoutSeconds = 1800,
 	[uint32] $Dipsw = 0x00a00000
 )
 
@@ -118,19 +124,11 @@ foreach ($name in $requiredRomFiles) {
 		throw "Parent simulation image hash mismatch: $name"
 	}
 }
-$safeCommand = Get-Command verilator-sim-safe -ErrorAction SilentlyContinue
-$safeVerilator = if ($safeCommand) {
-	$safeCommand.Source
-} else {
-	'C:\Users\meath\bin\verilator-sim-safe.exe'
+$ucrtRuntime = 'C:\msys64\ucrt64\bin'
+if (-not (Test-Path -LiteralPath $ucrtRuntime -PathType Container)) {
+	throw "Missing UCRT64 runtime directory: $ucrtRuntime"
 }
-if (-not (Test-Path -LiteralPath $safeVerilator)) {
-	throw "Missing machine-wide Verilator safe launcher: $safeVerilator"
-}
-$sdlRuntime = 'C:\msys64\ucrt64\bin'
-if (-not (Test-Path -LiteralPath (Join-Path $sdlRuntime 'SDL2.dll'))) {
-	throw "Missing SDL2 runtime required by the visible Verilator guard: $sdlRuntime"
-}
+if ($HostTimeoutSeconds -lt 1) { throw 'HostTimeoutSeconds must be at least one second' }
 $jtJ68 = Join-Path $root '.workbench\upstream\jtcores\modules\jtframe\hdl\cpu\j68'
 $jtFx68k = Join-Path $root '.workbench\upstream\jtcores\modules\fx68k\hdl'
 $runtime = Join-Path $env:TEMP "bucky-parent-runtime-$PID"
@@ -182,6 +180,10 @@ $plus = @(
 	"+RESULT_FILE=$result",
 	"+DIPSW=$('{0:x8}' -f $Dipsw)"
 )
+if (-not [string]::IsNullOrWhiteSpace($ProducerTraceFile)) {
+	$producerTrace = [IO.Path]::GetFullPath($ProducerTraceFile)
+	$plus += "+EEP_TRACE_FILE=$producerTrace"
+}
 if ($Diagnostics) { $plus += '+DIAG' }
 if ($PixelDiagnostics) { $plus += '+PIXDIAG' }
 if ($PaletteDiagnostics) { $plus += '+PALDIAG' }
@@ -204,13 +206,17 @@ if ($StartFrame -ge 0) { $plus += "+START_FRAME=$StartFrame" }
 if ($Button1Frame -ge 0) { $plus += "+BUTTON1_FRAME=$Button1Frame" }
 if ($Button1Period -gt 0) { $plus += "+BUTTON1_PERIOD=$Button1Period" }
 if ($Button1End -ge 0) { $plus += "+BUTTON1_END=$Button1End" }
+if ($Button3Frame -ge 0) { $plus += "+BUTTON3_FRAME=$Button3Frame" }
+if ($Button3Period -gt 0) { $plus += "+BUTTON3_PERIOD=$Button3Period" }
+if ($Button3End -ge 0) { $plus += "+BUTTON3_END=$Button3End" }
 if ($RightStart -ge 0) { $plus += "+RIGHT_START=$RightStart" }
 if ($RightEnd -ge 0) { $plus += "+RIGHT_END=$RightEnd" }
 if ($InputPulse -lt 1) { throw 'InputPulse must be at least one frame' }
 if ($CoinPulse -ge 0) { $plus += "+COIN_PULSE=$CoinPulse" }
 if ($StartPulse -ge 0) { $plus += "+START_PULSE=$StartPulse" }
 if ($Button1Pulse -ge 0) { $plus += "+BUTTON1_PULSE=$Button1Pulse" }
-if ($CoinFrame -ge 0 -or $Coin2Frame -ge 0 -or $StartFrame -ge 0 -or $Button1Frame -ge 0) { $plus += "+INPUT_PULSE=$InputPulse" }
+if ($Button3Pulse -ge 0) { $plus += "+BUTTON3_PULSE=$Button3Pulse" }
+if ($CoinFrame -ge 0 -or $Coin2Frame -ge 0 -or $StartFrame -ge 0 -or $Button1Frame -ge 0 -or $Button3Frame -ge 0) { $plus += "+INPUT_PULSE=$InputPulse" }
 if ($InputDiagnostics) { $plus += '+INPUT_DIAG' }
 if ($GameplayDiagnostics) { $plus += '+GAMEPLAY_DIAG' }
 if ($ObjectDiagnostics) { $plus += '+OBJ_DIAG' }
@@ -265,19 +271,43 @@ if (-not [string]::IsNullOrWhiteSpace($AudioFile)) {
 }
 
 $previousPath = $env:PATH
-$env:PATH = "$sdlRuntime;$previousPath"
+$env:PATH = "$ucrtRuntime;$previousPath"
 Push-Location $runtime
 try {
-	# The machine-wide simulation launcher owns the mandatory visible SDL guard
-	# for the complete simulation process.  Invoke its dedicated simulation
-	# entry point rather than starting the model executable headlessly.
-	if ([string]::IsNullOrWhiteSpace($LogFile)) {
-		& $safeVerilator $exe @plus
-	} else {
-		$log = [IO.Path]::GetFullPath($LogFile)
-		& $safeVerilator $exe @plus 2>&1 | Tee-Object -FilePath $log
+	# Project-owned non-SDL execution path. Use a finite host watchdog in
+	# addition to the model's semantic frame/cycle stop barriers.
+	$psi = [Diagnostics.ProcessStartInfo]::new()
+	$psi.FileName = $exe
+	$psi.WorkingDirectory = $runtime
+	$psi.UseShellExecute = $false
+	$psi.CreateNoWindow = $true
+	$psi.RedirectStandardOutput = $true
+	$psi.RedirectStandardError = $true
+	# Use the Windows command-line string property for compatibility with both
+	# Windows PowerShell 5.1 and PowerShell 7. Plusargs contain no embedded
+	# quotes; quote each complete argument so paths with spaces remain intact.
+	$psi.Arguments = (($plus | ForEach-Object {
+		'"' + ([string]$_).Replace('"', '\"') + '"'
+	}) -join ' ')
+	$process = [Diagnostics.Process]::new()
+	$process.StartInfo = $psi
+	if (-not $process.Start()) { throw 'Failed to start headless parent simulation' }
+	$stdoutTask = $process.StandardOutput.ReadToEndAsync()
+	$stderrTask = $process.StandardError.ReadToEndAsync()
+	if (-not $process.WaitForExit($HostTimeoutSeconds * 1000)) {
+		$process.Kill()
+		$process.WaitForExit()
+		throw "Parent simulation exceeded host watchdog (${HostTimeoutSeconds}s)"
 	}
-	$simExit = $LASTEXITCODE
+	$stdout = $stdoutTask.GetAwaiter().GetResult()
+	$stderr = $stderrTask.GetAwaiter().GetResult()
+	$combined = $stdout + $stderr
+	if (-not [string]::IsNullOrWhiteSpace($combined)) { Write-Output $combined.TrimEnd() }
+	if (-not [string]::IsNullOrWhiteSpace($LogFile)) {
+		$log = [IO.Path]::GetFullPath($LogFile)
+		[IO.File]::WriteAllText($log, $combined)
+	}
+	$simExit = $process.ExitCode
 	if ($simExit -ne 0) { throw "Parent simulation failed with exit code $simExit" }
 } finally {
 	Pop-Location

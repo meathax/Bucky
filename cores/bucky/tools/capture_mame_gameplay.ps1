@@ -6,7 +6,8 @@ param(
 	[int] $ObjectDumpFrame = -1,
 	[int] $FullObjectDumpFrame = -1,
 	[switch] $ObjectWatch,
-	[switch] $PlayerWatch
+	[switch] $PlayerWatch,
+	[switch] $ProducerTrace
 )
 
 $ErrorActionPreference = 'Stop'
@@ -42,19 +43,21 @@ $oldObjectDump = $env:BUCKY_MAME_OBJ_DUMP_FRAME
 $oldFullObjectDump = $env:BUCKY_MAME_OBJ_FULL_DUMP_FRAME
 $oldObjectWatch = $env:BUCKY_MAME_OBJ_WATCH
 $oldPlayerWatch = $env:BUCKY_MAME_PLAYER_WATCH
+$oldProducerTrace = $env:BUCKY_MAME_PRODUCER_TRACE
 $env:BUCKY_MAME_RUN_DIR = $runPath.Replace('\\', '/')
 $env:BUCKY_MAME_STOP_FRAME = [string]$StopFrame
 $env:BUCKY_MAME_OBJ_DUMP_FRAME = [string]$ObjectDumpFrame
 $env:BUCKY_MAME_OBJ_FULL_DUMP_FRAME = [string]$FullObjectDumpFrame
 if ($ObjectWatch) { $env:BUCKY_MAME_OBJ_WATCH = '1' } else { $env:BUCKY_MAME_OBJ_WATCH = '0' }
 if ($PlayerWatch) { $env:BUCKY_MAME_PLAYER_WATCH = '1' } else { $env:BUCKY_MAME_PLAYER_WATCH = '0' }
+if ($ProducerTrace) { $env:BUCKY_MAME_PRODUCER_TRACE = '1' } else { $env:BUCKY_MAME_PRODUCER_TRACE = '0' }
 Push-Location $runPath
 try {
 	$previousErrorAction = $ErrorActionPreference
 	$ErrorActionPreference = 'Continue'
 	& $mamePath bucky -noreadconfig -rompath $romPath -autoboot_script $lua `
 		-autoboot_delay 0 -video none -sound none -nothrottle -frameskip 0 `
-		-skip_gameinfo -window -noplugins -nocheat -noautosave -norewind `
+		-skip_gameinfo -noplugins -nocheat -noautosave -norewind `
 		-nohttp -noconsole -cfg_directory $cfg.FullName `
 		-nvram_directory $nvram.FullName -state_directory $state.FullName *> $log
 	$exitCode = $LASTEXITCODE
@@ -67,6 +70,7 @@ try {
 	$env:BUCKY_MAME_OBJ_FULL_DUMP_FRAME = $oldFullObjectDump
 	$env:BUCKY_MAME_OBJ_WATCH = $oldObjectWatch
 	$env:BUCKY_MAME_PLAYER_WATCH = $oldPlayerWatch
+	$env:BUCKY_MAME_PRODUCER_TRACE = $oldProducerTrace
 }
 if ($exitCode -ne 0) { throw "MAME gameplay capture failed with exit code $exitCode" }
 
@@ -96,6 +100,10 @@ if ($ObjectWatch) {
 if ($PlayerWatch) {
 	$playerWatchFile = Join-Path $runPath 'player-watch.log'
 	if (-not (Test-Path -LiteralPath $playerWatchFile -PathType Leaf)) { throw "Missing MAME player-watch artifact: $playerWatchFile" }
+}
+if ($ProducerTrace) {
+	$producerTraceFile = Join-Path $runPath 'eeprom-workram.raw.jsonl'
+	if (-not (Test-Path -LiteralPath $producerTraceFile -PathType Leaf)) { throw "Missing MAME producer trace artifact: $producerTraceFile" }
 }
 if ((Get-Content -LiteralPath $gameLog -Tail 1) -notmatch ("^DONE frame={0} " -f $StopFrame)) {
 	throw "MAME gameplay capture did not reach the frame-$StopFrame stop barrier"

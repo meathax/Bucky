@@ -2,14 +2,16 @@
 
 ## Baseline - 2026-08-08
 
-- Workspace is not a Git repository; preservation is verified by keeping `cores/moomesa` untouched.
+- This is a Git source repository containing only the independent Bucky core;
+  the original multi-core donor trees are not distributed here.
 - Current gate: Bucky source fork and focused device verification.
 - Reference driver: MAME 0.289 `src/mame/konami/moo.cpp`, system `bucky`.
 - ROM archive SHA-256: `D9EAB6109959A7A77E83871EA775954D10F0A607FA320B81D75713DC12F38987`.
 - MAME executable: `D:\arcade\ai\mameexe\mame.exe`, SHA-256
   `AF6966108D9B52C22465C6D50F4E5D50CC371B50F2D27DC443935F287AAD37A3`.
 - Hardware evidence copied to ignored `.workbench/upstream`; source identities are in `SOURCES.md`.
-- Existing Moo Mesa source has not been edited.
+- The original Moo Mesa donor remains pinned by remote repository and commit in
+  `SOURCES.md`; adapted files retain their provenance notices.
 - No Bucky Verilator, Quartus or hardware result exists yet.
 
 ## Known reference limitations
@@ -26,7 +28,8 @@ K054000/K054338 tests. Real-game accuracy claims begin only after deterministic 
 
 ## Implementation checkpoint - 2026-08-08
 
-- Forked `cores/moomesa` to `cores/bucky`; the Moo Mesa tree remains unchanged.
+- Forked the pinned Moo Mesa donor into the independent `cores/bucky` source
+  tree; the donor tree itself is not part of this repository.
 - Added the exact Bucky main map, including separate RAM banks at `0x080000`, `0x0a0000`, and
   `0x184000-0x187fff`, exact custom-chip windows, 4096-color palette RAM, and data ROM.
 - Added an independent K054000 implementation and byte-lane wrapper. A live MAME 0.289 probe passed

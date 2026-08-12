@@ -10,6 +10,7 @@ local object_dump_frame = tonumber(os.getenv("BUCKY_MAME_OBJ_DUMP_FRAME") or "-1
 local full_object_dump_frame = tonumber(os.getenv("BUCKY_MAME_OBJ_FULL_DUMP_FRAME") or "-1")
 local watch_object = os.getenv("BUCKY_MAME_OBJ_WATCH") == "1"
 local watch_player = os.getenv("BUCKY_MAME_PLAYER_WATCH") == "1"
+local trace_producer = os.getenv("BUCKY_MAME_PRODUCER_TRACE") == "1"
 local log = assert(io.open(output_dir .. "/mame-gameplay.log", "w"))
 local applied = assert(io.open(output_dir .. "/applied-inputs.jsonl", "w"))
 local object_watch = watch_object and assert(io.open(output_dir .. "/object-watch.log", "w")) or nil
@@ -25,6 +26,9 @@ local object_read_tap
 local player_write_tap
 local player_read_tap
 local player_input_tap
+local producer_trace = trace_producer and assert(io.open(output_dir .. "/eeprom-workram.raw.jsonl", "w")) or nil
+local producer_taps = {}
+local producer_seq = 0
 local watch_address_set = {}
 for _, address in ipairs(watch_addresses) do watch_address_set[address] = true end
 
@@ -42,6 +46,33 @@ end
 local function pc()
   local ok, value = pcall(function() return cpu.state["PC"].value end)
   return ok and value or 0
+end
+
+local function trace_access(rw, offset, data, mask)
+  local byte_enable = ((mask & 0x00ff) ~= 0 and 1 or 0) |
+                      ((mask & 0xff00) ~= 0 and 2 or 0)
+  local normalized_data = data & mask & 0xffff
+  producer_trace:write(string.format(
+    '{"domain":"eeprom_workram","seq":%d,"event":"bus","phase":"completed","rw":"%s","address":%d,"data":%d,"byte_enable":%d,"width_bits":16,"pc":%d,"frame":%d,"reset_epoch":1}\n',
+    producer_seq, rw, offset, normalized_data, byte_enable, pc(), frame))
+  producer_trace:flush()
+  producer_seq = producer_seq + 1
+end
+
+if trace_producer then
+  local windows = {
+    {0x080050, 0x080069, "workram_source"},
+    {0x080940, 0x08094f, "workram_consumer"},
+    {0x08f000, 0x08f006, "eeprom_shadow"}
+  }
+  for _, window in ipairs(windows) do
+    producer_taps[#producer_taps + 1] = program:install_read_tap(
+      window[1], window[2], window[3] .. "_read",
+      function(offset, data, mask) trace_access("R", offset, data, mask) end)
+    producer_taps[#producer_taps + 1] = program:install_write_tap(
+      window[1], window[2], window[3] .. "_write",
+      function(offset, data, mask) trace_access("W", offset, data, mask) end)
+  end
 end
 
 if watch_player then
@@ -155,6 +186,9 @@ end
 
 emu.register_frame_done(function()
   frame = frame + 1
+  if trace_producer then
+    for _, tap in ipairs(producer_taps) do tap:reinstall() end
+  end
   if object_watch then
     -- Pass-through handlers may be displaced when MAME rebuilds an address
     -- map.  Reinstalling is idempotent and keeps the exact access evidence
@@ -226,6 +260,7 @@ emu.register_frame_done(function()
     applied:close()
     if object_watch then object_watch:close() end
     if watch_player then player_watch:close() end
+    if trace_producer then producer_trace:close() end
     manager.machine:exit()
   end
 end, "bucky_gameplay_capture")

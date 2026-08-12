@@ -55,8 +55,11 @@ def require(needle: str, haystack: str, label: str) -> None:
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print(f"usage: {Path(sys.argv[0]).name} <jtcores/cores/bucky>", file=sys.stderr)
+    if len(sys.argv) not in (2, 3):
+        print(
+            f"usage: {Path(sys.argv[0]).name} <jtcores/cores/bucky> [derived-wrapper]",
+            file=sys.stderr,
+        )
         return 2
 
     core = Path(sys.argv[1]).resolve()
@@ -66,7 +69,7 @@ def main() -> int:
     generated = core / "mister"
     if not (generated / "files.qip").is_file():
         generated = core
-    wrapper = generated / "jtbucky_game_sdram.v"
+    wrapper = Path(sys.argv[2]).resolve() if len(sys.argv) == 3 else generated / "jtbucky_game_sdram.v"
     ports = generated / "mem_ports.inc"
     qip = generated / "files.qip"
     for path in (wrapper, ports, qip):
@@ -83,6 +86,9 @@ def main() -> int:
     require("[22:2] lyro_addr", wrapper_text, "generated wrapper")
     require("[21:1] main_addr", wrapper_text, "generated wrapper")
     require("[6:0] nvram_addr", wrapper_text, "generated wrapper")
+    require("cowboys_lyro64", wrapper_text, "generated sprite bank")
+    if "jtframe_rom_1slot #(\n    .SDRAMW(SDRAMW-1),\n    // lyro" in wrapper_text:
+        raise ValueError("generated sprite bank still uses the stock 32-bit slot")
     require("pcm_addr", ports_text, "generated memory ports")
     require("lyro_addr", ports_text, "generated memory ports")
 

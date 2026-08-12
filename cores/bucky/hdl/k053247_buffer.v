@@ -174,22 +174,29 @@ generate
         wire [4*SW-1:0] sh_din_bus;
         wire [4*AW-1:0] sh_wa_bus;
         wire      [3:0] sh_we_bus;
+        wire      [3:0] sh_line_bus;
 
         genvar gs;
         for( gs=0; gs<4; gs=gs+1 ) begin : g_shreg
             reg  [SW-1:0] r_shdin;
             reg  [AW-1:0] r_shwa;
             reg           r_shwe;
+            reg           r_shline;
             wire erase_shade = !shd_bus[gs] &  nwe_bus[gs];
             wire add_shade   =  shd_bus[gs] & praw_we[gs] & isshd_bus[gs];
             always @(posedge clk) begin
                 r_shdin <= shbit_bus[gs*SW +: SW];
                 r_shwa  <= af_bus[gs*AW +: AW];
                 r_shwe  <= add_shade || erase_shade;
+                // The shadow RMW path is delayed by one clock.  Carry the
+                // producer bank epoch with it so a line flip cannot retarget
+                // a late shadow write into the next ping-pong buffer.
+                r_shline<= line;
             end
             assign sh_din_bus[gs*SW +: SW] = r_shdin;
             assign sh_wa_bus [gs*AW +: AW] = r_shwa;
             assign sh_we_bus [gs]          = r_shwe;
+            assign sh_line_bus[gs]         = r_shline;
         end
 
         // 4 bancos × 2 ping-pong. sh0 escribe con line=1 (lee/borra con ~line); sh1 al revés.
@@ -205,7 +212,7 @@ generate
                 shwe_b = 1'b0; shwd_b = {SW{1'b0}}; shwi_b = {IW{1'b0}};
                 for( k=0; k<4; k=k+1 )
                     if( sh_wa_bus[k*AW +: 2] == BK ) begin
-                        shwe_b = sh_we_bus[k];
+                        shwe_b = sh_we_bus[k] & (sh_line_bus[k] == line);
                         shwd_b = sh_din_bus[k*SW +: SW];
                         shwi_b = sh_wa_bus[k*AW+2 +: IW];
                     end

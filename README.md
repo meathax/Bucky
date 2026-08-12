@@ -1,59 +1,53 @@
 # Bucky O'Hare — MiSTer FPGA Core
 
-An independent MiSTer FPGA recreation of Konami's **Bucky O'Hare** arcade hardware.
+An FPGA recreation of Konami's 1992 **Bucky O'Hare** arcade hardware for the
+MiSTer FPGA platform.
 
-## Core title and board
-
-- **Core title:** Bucky O'Hare
-- **Arcade hardware:** Konami **GX173 / PWB353126** PCB
-- **Game:** Bucky O'Hare, Konami, 1992
-- **Display:** horizontal, 384×224 active pixels, 4:3 aspect ratio, 15 kHz-class arcade timing
-- **Players:** up to four
+- **Target:** MiSTer / DE10-Nano with an SDRAM expansion
+- **Original board:** Konami GX173, PWB353126
+- **Display:** horizontal 384×224, 4:3, 15 kHz-class timing
+- **Players:** one to four
 - **Framework:** JTFRAME / jtcores
+- **Repository policy:** source, configuration, tests and documentation only;
+  no ROMs, generated Quartus databases or RBF files
 
-This is a work-in-progress accuracy core. Focused device tests, ROM/MRA validation and parent boot
-tests are in place. Full gameplay-length regression and real MiSTer hardware deployment remain open
-validation gates.
+The core boots and runs on real MiSTer hardware. The source includes the
+hardware-verified sprite/shadow corrections and the K054539 active-voice
+retrigger correction for event sound effects. Reproducible source-validation
+and build details are in [BUILD.md](BUILD.md).
 
 ## Features in the OSD
-
-The Bucky O'Hare MRA exposes the following board configuration and control options:
 
 | OSD feature | Options / function |
 |---|---|
 | Sound Output | Stereo or Mono |
 | Coin Mechanism | Independent or Common |
 | Number of Players | 2, 3 or 4 |
-| Scale | Normal, V-Integer, Narrower HV-Integer, Wider HV-Integer (JTFRAME) |
-| Controls | Four 8-way joysticks with Shoot, Jump and Special buttons |
-| NVRAM | Save and restore the emulated 128-byte EEPROM through MiSTer settings |
+| Scale | Normal, V-Integer, narrower HV-Integer or wider HV-Integer |
+| Controls | Four 8-way joysticks with Shoot, Jump and Special |
+| Service / Test | MiSTer service input and the board's test-mode control |
+| NVRAM | Save and restore the 128-byte serial EEPROM |
+
+The OSD uses the standard MiSTer red-tinted palette rather than JTFRAME's grey
+background override.
 
 ## PCB Accuracy
 
-The table below lists the parts of the GX173 implementation that follow the PCB documentation,
-silicon reconstruction, MAME's documented device contract, or focused component tests. “Implemented”
-does not mean that the complete game has already passed a hardware comparison.
+Only areas tied to original-board documentation or reconstructed chip evidence
+are listed here. Simulation success alone is not treated as PCB evidence.
 
-| Area | PCB-aligned implementation | Evidence / status |
+| Area | Implemented behavior | Qualifying evidence |
 |---|---|---|
-| Board map and ROM layout | GX173 address map, RAM windows, custom-chip windows, palette, data ROM and EEPROM | Implemented; six MAME 0.289 MRAs generated and checked |
-| Main CPU | MC68000-compatible CPU path with GX173 bus decoding, wait states, IRQ4 and IRQ5 | Implemented; parent POST and directed gameplay milestones reached; long regression pending |
-| Sound subsystem | Z80 sound CPU, banked sound ROM, main/sound latch and YM2151 interface | Implemented and exercised by parent boot tests |
-| K054539 PCM | 8-bit PCM, 16-bit PCM, 4-bit DPCM, pan/volume, key-on/off, reverb, reverse playback and register readback | Focused component test passes; game-level audio regression remains pending |
-| K056832 tile video | Tilemap VRAM, scrolling, tile ROM readback and GX173 timing geometry | Focused ROM-readback/component tests pass |
-| K053246 / K053247 sprites | Sprite DMA, source RAM, scanning, zoom, shadow attributes and line-buffered drawing | PCB sprite-source behavior corrected; gameplay-length scene regression remains pending |
-| K053251 priority | Layer and sprite priority selection with shadow-priority behavior | Implemented from the GX173 video path and silicon evidence; full-scene closure pending |
-| K054338 color math | Mix selection, interpolation/addition, shadow/highlight paths, clamp control and brightness output | Derived from the reconstructed schematic; focused component test passes |
-| K054000 device | Register/status behavior and GX173 byte-lane integration | Independent implementation; published 20-step register/status probe passes |
-| Protection blitter | GX173 boot-time ROM/RAM blitter contract, including bus-master stalling | Implemented as a synthesizable HLE of the documented behavior; not a gate-level recreation |
-| Timing and I/O | 8 MHz pixel timing, 384×224 raster, four-player inputs, DIP switches and active-low cabinet signals | Implemented from board/MAME evidence; hardware gate remains outstanding |
+| GX173 board architecture | Main/sound CPU arrangement, clocks, ROM/RAM organization, custom-chip buses and cabinet I/O | Konami Bucky O'Hare GX173/PWB353126 operation and service documentation, pinned in [SOURCES.md](SOURCES.md) |
+| K054000 | CPU-visible register/status device and GX173 byte-lane integration | SiliconRE K054000 reconstructed schematic, pinout and traces at the pinned revision in [SOURCES.md](SOURCES.md) |
+| K054338 | Mix selection, background selection, signed shadow/highlight tables, clamp behavior and independent brightness output | Eight-page SiliconRE K054338 reconstructed schematic and pin documentation, mapped in [SOURCES.md](SOURCES.md) |
 
-## Full list of games supported by the hardware
+## Supported games
 
-The core currently supports all six Bucky O'Hare revisions selected by the `bucky` MAME machine
-configuration:
+The source configuration supports all six Bucky O'Hare revisions in MAME's
+`bucky` machine family:
 
-| Game / revision | MAME set name |
+| Game / revision | MAME set |
 |---|---|
 | Bucky O'Hare (ver EAB) | `bucky` |
 | Bucky O'Hare (ver EA) | `buckyea` |
@@ -62,70 +56,78 @@ configuration:
 | Bucky O'Hare (ver AAB) | `buckyaab` |
 | Bucky O'Hare (ver AA) | `buckyaa` |
 
-These are regional or revision variants of the same game, not separate games.
+These are regional or program revisions of the same GX173 game.
 
 ## **Hardware emulated**
 
-| Hardware | Role |
-|---|---|
-| MC68000 | Main game CPU |
-| Z80 | Sound CPU |
-| YM2151 | FM sound generation |
-| Konami K054539 | PCM sample playback and effects |
-| Konami K054321-style sound interface | Main CPU ↔ sound CPU communication and sound control |
-| Konami K056832 | Tilemap generation, scrolling and tile ROM access |
-| Konami K053246 / K053247 | Sprite object RAM, DMA, scanning and drawing |
-| Konami K053251 | Video layer/sprite priority and shadow-priority selection |
-| Konami K054338 | Color mixing, alpha-style effects, shadow/highlight math and brightness |
-| Konami K054000 | Collision/security register device |
-| Konami K053252 / CCU timing | Pixel, raster and interrupt timing |
-| GX173 protection blitter | Boot-time and runtime data transformation, modeled as HLE |
-| Palette RAM, work RAM, tile RAM, sprite RAM and EEPROM | Board memory and persistent settings |
+| Chip / subsystem | Clock or interface | Implementation / reference |
+|---|---|---|
+| Motorola 68000-compatible CPU | 16 MHz, 16-bit main bus | JTFRAME CPU integration with the GX173 address map, waits, IRQ4/IRQ5 and protection ownership |
+| Z80-compatible sound CPU | 8 MHz, banked 8-bit ROM/RAM bus | T80/JTFRAME integration with the Bucky sound map |
+| Yamaha YM2151 | 4 MHz FM interface | JT51 |
+| Konami K054539 | 18.432 MHz input, fixed 48 kHz mix cadence | Bucky RTL supporting 8-bit PCM, 16-bit PCM, DPCM, pan, volume, reverse addressing, reverb, key-on/off and active-voice retrigger |
+| Konami K054321-style interface | Main CPU ↔ sound CPU registers and interrupt signaling | Synthesizable Bucky sound-command path |
+| Konami K056832 | 8 MHz pixel/tile timing and 32-bit tile-ROM path | GX173 tilemap, scrolling and ROM-readback RTL |
+| Konami K053246 / K053247 | Object RAM, DMA, sprite-ROM fetch and line-buffered drawing | Bucky sprite engine with bounded line ownership, zoom and shadow attributes |
+| Konami K053251 | Layer/sprite priority registers | Bucky priority and shadow-priority RTL |
+| Konami K054338 | 24-bit color-math pipeline | Schematic-derived RTL with separate brightness output |
+| Konami K054000 | 68000 register interface | Independent behavioral RTL based on reconstructed device evidence |
+| Konami K053252 / CCU timing | 8 MHz raster timing | 512×264 total timing with 384×224 active output |
+| GX173 protection blitter | Main-bus master, ROM-to-RAM transforms | Synthesizable behavioral implementation of the software-visible contract |
+| ER5911-compatible EEPROM | Serial 128-byte nonvolatile store | JTFRAME serial EEPROM path with MiSTer save/restore support |
+| Shared memory system | MiSTer SDRAM, banked/cached ROM traffic | JTFRAME memory generator with Bucky-specific main, sound, tile, sprite and PCM mappings |
 
 ## Credits
 
-| Credit | Contribution |
+| Project / contributor | Contribution |
 |---|---|
-| Meathax / Bucky MiSTer contributors | Bucky-specific GX173 integration, address map, protection, device models, MRA packaging and validation work |
-| Jose Tejada Gómez / Jotego | JTFRAME and jtcores framework, fx68k, Z80, JT51 and shared MiSTer build infrastructure |
-| Rafael Eduardo Paiva Feener and Miki Saito | Credits retained from the inherited JTCORES video and sprite modules |
-| [jlrh/konami-fpga Moo Mesa core](https://github.com/jlrh/konami-fpga/tree/5e890383/cores/moomesa) and its contributors | GX151/GX173-family CPU, video, sound, SDRAM and I/O baseline; common RTL adapted under its original GPLv3 notices |
-| MAME project contributors | Hardware reference and software-visible contracts, especially `moo.cpp` and `k054539.cpp` |
-| Furrtek / SiliconRE contributors | Reconstructed Konami silicon documentation, schematics, pinouts and behavioral evidence for the K054000, K054338 and K054539 |
-| MiSTer Template contributors | Official standalone MiSTer packaging reference used by the project |
-| MiSTer FPGA project, Sorgelig and the MiSTer community | FPGA platform, core framework, documentation and preservation ecosystem |
-| Konami | Original GX173 hardware and Bucky O'Hare design |
+| Meathax and Bucky MiSTer contributors | GX173 integration, device RTL, debugging, hardware testing, packaging and maintenance |
+| [Jose Tejada Gómez / Jotego](https://github.com/jotego/jtcores) and jtcores contributors | JTFRAME, CPU/audio building blocks and MiSTer infrastructure; upstream notices retained |
+| Rafael Eduardo Paiva Feener and Miki Saito | Contributions credited by the inherited Konami video/sprite sources |
+| [jlrh/konami-fpga Moo Mesa core](https://github.com/jlrh/konami-fpga/tree/5e890383/cores/moomesa) contributors | GPLv3 GX151/GX173-family donor architecture adapted into the independent Bucky tree |
+| [MAME](https://github.com/mamedev/mame) contributors | `moo.cpp`, K054539 behavior and observable software contracts used as a reference model |
+| Furrtek and SiliconRE contributors | Reconstructed Konami K054000/K054338 schematics, traces and pin documentation |
+| [MiSTer-devel Template_MiSTer](https://github.com/MiSTer-devel/Template_MiSTer) contributors | Official MiSTer project, framework and packaging conventions |
+| Sorgelig and the MiSTer community | MiSTer platform, Main, documentation and preservation ecosystem |
+| OpenAI Codex | Tool-assisted RTL analysis, regression development and documentation under maintainer review |
+| Konami | Original Bucky O'Hare game and GX173 hardware |
 
-The complete pinned source and evidence ledger is in [`SOURCES.md`](SOURCES.md). Upstream copyright
-and license notices are retained in the relevant source files.
+Pinned provenance and licensing details are recorded in
+[SOURCES.md](SOURCES.md). Copyright and license notices from adapted sources
+are retained in their source files.
 
 ## License
 
-The core source in this repository is released under the **GNU General Public License v3**; see
-[`LICENSE`](LICENSE).
+The Bucky core source is distributed under the **GNU General Public License
+v3.0**; see [LICENSE](LICENSE).
 
-The repository also contains or references components with their own notices, including JTFRAME/jtcores
-GPL notices, MAME's BSD-3-Clause reference source, and SiliconRE's GPL-2.0 documentation. SiliconRE
-material is retained as evidence and is not linked into the production RTL. Check each source header
-for its applicable terms.
+Adapted JTFRAME/jtcores and donor modules retain their original GPL-compatible
+notices. MAME and SiliconRE are reference/evidence sources with their own
+licenses and are not copied wholesale into the production RTL. Review the
+header of each adapted file and [SOURCES.md](SOURCES.md) for details.
 
-Copyrighted game ROMs are not included. Use only ROMs that you are legally entitled to use.
+Copyrighted game ROMs, EEPROM dumps and other proprietary game assets are not
+included. Supply only ROMs you are legally entitled to use.
 
 ## How to install
 
-1. Obtain the matching `Bucky.rbf` and one or more Bucky O'Hare `.mra` files.
-2. Copy the `.mra` files to `/_Arcade/` on the MiSTer SD card.
-3. Copy `Bucky.rbf` to `/_Arcade/cores/`.
-4. Place the legally obtained MAME ROM ZIPs in `/games/mame/`.
-5. Launch the desired Bucky O'Hare revision from the MiSTer Arcade menu.
+This source repository intentionally does not contain an RBF.
 
-Alternatively, add this entry to `downloader.ini` and run **Update All** to get all of the Meathax
-cores automatically:
+For manual installation:
+
+1. Obtain or build the current `Arcade-Bucky_YYYYMMDD.rbf`.
+2. Place the RBF in `/media/fat/_Arcade/` and place the Bucky `.mra` files in
+   the same `_Arcade` folder. An equivalent organized layout, such as an RBF
+   under `/media/fat/_Arcade/cores/`, is also supported when the MRA resolves it.
+3. Put legally obtained matching MAME ROM ZIPs in `/media/fat/games/mame/`.
+4. Launch the desired Bucky O'Hare revision from MiSTer's Arcade menu.
+
+For automatic installation, add this entry to `downloader.ini`:
 
 ```ini
 [meathax/meatcores]
 db_url = https://raw.githubusercontent.com/meathax/meatcores/db/downloader_meathax_meatcores.zip
 ```
 
-The MRA files select the RBF and assemble the ROM stream at launch; the game ROMs are not baked into
-the bitstream.
+Then run **Update All** on MiSTer. The downloader installs the published core
+and MRA files; game ROMs remain user-supplied.

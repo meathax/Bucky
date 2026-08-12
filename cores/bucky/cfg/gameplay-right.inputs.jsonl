@@ -1,0 +1,42 @@
+{"seq":1,"field":"Coin 1","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":470,"reset_epoch":1}}
+{"seq":2,"field":"Coin 1","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":490,"reset_epoch":1}}
+{"seq":3,"field":"1 Player Start","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":510,"reset_epoch":1}}
+{"seq":4,"field":"1 Player Start","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":530,"reset_epoch":1}}
+{"seq":5,"field":"P1 Button 1","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":550,"reset_epoch":1}}
+{"seq":6,"field":"P1 Button 1","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":551,"reset_epoch":1}}
+{"seq":7,"field":"P1 Button 1","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":600,"reset_epoch":1}}
+{"seq":8,"field":"P1 Button 1","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":601,"reset_epoch":1}}
+{"seq":9,"field":"P1 Button 1","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":650,"reset_epoch":1}}
+{"seq":10,"field":"P1 Button 1","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":651,"reset_epoch":1}}
+{"seq":11,"field":"P1 Button 1","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":700,"reset_epoch":1}}
+{"seq":12,"field":"P1 Button 1","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":701,"reset_epoch":1}}
+{"seq":13,"field":"P1 Button 1","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":750,"reset_epoch":1}}
+{"seq":14,"field":"P1 Button 1","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":751,"reset_epoch":1}}
+{"seq":15,"field":"P1 Button 1","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":800,"reset_epoch":1}}
+{"seq":16,"field":"P1 Button 1","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":801,"reset_epoch":1}}
+{"seq":17,"field":"P1 Button 1","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":850,"reset_epoch":1}}
+{"seq":18,"field":"P1 Button 1","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":851,"reset_epoch":1}}
+{"seq":19,"field":"P1 Button 1","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":900,"reset_epoch":1}}
+{"seq":20,"field":"P1 Button 1","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":901,"reset_epoch":1}}
+{"seq":21,"field":"P1 Button 1","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":950,"reset_epoch":1}}
+{"seq":22,"field":"P1 Button 1","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":951,"reset_epoch":1}}
+{"seq":23,"field":"P1 Button 1","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":1000,"reset_epoch":1}}
+{"seq":24,"field":"P1 Button 1","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":1001,"reset_epoch":1}}
+{"seq":25,"field":"P1 Button 1","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":1050,"reset_epoch":1}}
+{"seq":26,"field":"P1 Button 1","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":1051,"reset_epoch":1}}
+{"seq":27,"field":"P1 Button 1","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":1100,"reset_epoch":1}}
+{"seq":28,"field":"P1 Button 1","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":1101,"reset_epoch":1}}
+{"seq":29,"field":"P1 Button 1","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":1150,"reset_epoch":1}}
+{"seq":30,"field":"P1 Button 1","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":1151,"reset_epoch":1}}
+{"seq":31,"field":"P1 Right","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":1200,"reset_epoch":1}}
+{"seq":32,"field":"P1 Button 1","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":1200,"reset_epoch":1}}
+{"seq":33,"field":"P1 Button 1","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":1201,"reset_epoch":1}}
+{"seq":34,"field":"P1 Button 1","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":1250,"reset_epoch":1}}
+{"seq":35,"field":"P1 Button 1","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":1251,"reset_epoch":1}}
+{"seq":36,"field":"P1 Button 1","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":1300,"reset_epoch":1}}
+{"seq":37,"field":"P1 Button 1","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":1301,"reset_epoch":1}}
+{"seq":38,"field":"P1 Button 1","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":1350,"reset_epoch":1}}
+{"seq":39,"field":"P1 Button 1","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":1351,"reset_epoch":1}}
+{"seq":40,"field":"P1 Button 1","value":1,"at":{"kind":"vblank_rise","domain":"screen","ordinal":1400,"reset_epoch":1}}
+{"seq":41,"field":"P1 Button 1","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":1401,"reset_epoch":1}}
+{"seq":42,"field":"P1 Right","value":0,"at":{"kind":"vblank_rise","domain":"screen","ordinal":1401,"reset_epoch":1}}
