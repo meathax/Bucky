@@ -73,13 +73,22 @@ reg  [7:0] regs [0:511];
 // UPDATE_AT_KEYON stores position writes outside the visible register RAM
 // until the next key-on command.  Keep this flat for Quartus inference.
 reg  [7:0] pos_latch [0:23];
+// The physical K054539 captures CPU writes when the active-low write strobe
+// is released.  The Z80 can hold one bus transaction across several 48 MHz
+// clocks, so retain its stable bus value and emit exactly one release commit.
+reg        cpu_write_pending;
+reg [8:0]  cpu_write_addr;
+reg [7:0]  cpu_write_data;
+wire       cpu_write_active = cs && we;
+wire       cpu_write_commit = cpu_write_pending && !cpu_write_active;
 integer    gi;
 initial for (gi=0; gi<512; gi=gi+1) regs[gi] = 8'd0;
 
 wire update_at_keyon = regs[9'h12f][0];
 wire reg_updates     = ~regs[9'h12f][7];
-wire [7:0] keyon_retrigger = (cs && we && (addr == 9'h114) && reg_updates) ?
-                              din : 8'h00;
+wire [7:0] keyon_retrigger = (cpu_write_commit &&
+                              (cpu_write_addr == 9'h114) && reg_updates) ?
+                              cpu_write_data : 8'h00;
 
 assign dout    = (addr == 9'h12c) ? active :
                  (addr == 9'h12d) ? ((rd && regs[9'h12f][4]) ?
@@ -181,7 +190,7 @@ reg  signed [15:0] rr_din;
 wire [14:0] rr_port_addr = {read_ptr[16], read_ptr[13:0]};
 // direccion de LECTURA combinacional: en S_MIX lee @widx (para el RMW del canal en S_RVWR);
 // en cualquier otro estado lee @reverb_pos (feedback, usado en S_REVRD tras emitir en S_IDLE).
-wire [12:0] rd_addr = (state==S_MIX) ? widx : reverb_pos;
+wire [12:0] rd_addr = ((state==S_MIX) || (state==S_RVWR)) ? widx : reverb_pos;
 
 // The reverb store has two independent 0x4000-byte banks.  Keep the CPU
 // data port on RAM port 0 and the audio read/modify/write path on port 1 so
@@ -189,11 +198,12 @@ wire [12:0] rd_addr = (state==S_MIX) ? widx : reverb_pos;
 // 262,144 bits into registers.  The CPU read is deliberately registered and
 // participates in rb_wait below, matching the existing wait-state contract
 // used by the serial ROM data port.
-wire        rr_cpu_write = cs && we && (addr == 9'h12d) &&
-                           (regs[9'h12e] == 8'h80);
+wire        rr_cpu_write = cpu_write_commit && (cpu_write_addr == 9'h12d) &&
+                            (regs[9'h12e] == 8'h80);
 wire [1:0]  rr_cpu_we = rr_cpu_write ?
                         (rr_port_addr[0] ? 2'b10 : 2'b01) : 2'b00;
-wire [15:0] rr_cpu_din = rr_port_addr[0] ? {din,8'h00} : {8'h00,din};
+wire [15:0] rr_cpu_din = rr_port_addr[0] ? {cpu_write_data,8'h00} :
+                                                   {8'h00,cpu_write_data};
 wire [15:0] rr_lo_cpu_q, rr_hi_cpu_q, rr_audio_q;
 wire [12:0] rr_cpu_word_addr = rr_cpu_read_seen ? rr_cpu_addr_l[13:1] :
                                                    rr_port_addr[13:1];
@@ -214,7 +224,7 @@ jtframe_dual_ram16 #(
     .q0    ( rr_lo_cpu_q   ),
     .clk1  ( clk           ),
     .data1 ( rr_din        ),
-    .addr1 ( rr_addr       ),
+    .addr1 ( rr_we ? rr_addr : rd_addr ),
     .we1   ( rr_we ? 2'b11 : 2'b00 ),
     .q1    ( rr_audio_q    )
 );
@@ -327,6 +337,9 @@ always @(posedge clk) begin
         sample_rom_cs <= 0; sample_rom_addr <= 0;
         left <= 0; right <= 0; accL <= 0; accR <= 0;
         active <= 0; restart <= 0;
+        cpu_write_pending <= 1'b0;
+        cpu_write_addr <= 9'd0;
+        cpu_write_data <= 8'd0;
         read_ptr <= 0;
         rb_pending <= 1'b0;
         rb_active <= 1'b0;
@@ -344,6 +357,14 @@ always @(posedge clk) begin
         end
         for (ci=0; ci<24; ci=ci+1) pos_latch[ci] <= 0;
     end else begin
+        if (cpu_write_active) begin
+            cpu_write_pending <= 1'b1;
+            cpu_write_addr <= addr;
+            cpu_write_data <= din;
+        end else begin
+            cpu_write_pending <= 1'b0;
+        end
+
         // ROM-bank data-port reads are serialized behind the playback
         // sequencer.  The Z80 holds its register cycle through rb_wait while
         // the shared SDRAM byte is fetched; sample timing is paused only for
@@ -395,35 +416,44 @@ always @(posedge clk) begin
             rb_data_valid <= 1'b1;
         end
 
-        // All register-file writes live in this process.  Position bytes are
-        // diverted to the UPDATE_AT_KEYON latches until a key-on commits them.
-        if (cs && we) begin
-            if (update_at_keyon && !addr[8] &&
-                (addr[4:0] >= 5'h0c) && (addr[4:0] <= 5'h0e))
+        // Ordinary register storage is transparent for the duration of the
+        // physical chip's active-low write enable. Position bytes are
+        // diverted to the UPDATE_AT_KEYON latches until key-on release.
+        if (cpu_write_active) begin
+            if (addr == 9'h12f) begin
+                // 0x22f D7 is transparent; D0/D1/D4/D5 commit below.
+                regs[9'h12f][7] <= din[7];
+            end else if (update_at_keyon && !addr[8] &&
+                         (addr[4:0] >= 5'h0c) && (addr[4:0] <= 5'h0e)) begin
                 pos_latch[(addr[8:5] * 3) + (addr[4:0] - 5'h0c)] <= din;
-            else
+            end else if (addr[8] && (addr[7:4] == 4'h0) && addr[0]) begin
+                // Odd channel-control D0 is release-latched; its D2/D4/D5
+                // fields are transparent while the strobe is active.
+                regs[addr] <= {din[7:1], regs[addr][0]};
+            end else begin
                 regs[addr] <= din;
+            end
         end
 
-        // key on/off desde la CPU (corre a clk, no a cen)
-        if (cs && we) begin
-            case (addr)
+        // The decapped start/stop block captures key-on at nKONWR release.
+        if (cpu_write_commit) begin
+            case (cpu_write_addr)
                 9'h114: begin
                     // MAME suppresses all register updates while bit 7 of
                     // the global control is set.  With UPDATE_AT_KEYON,
                     // copy the three latched position bytes atomically.
                     if (reg_updates) begin
-                        active  <= active | din;
+                        active  <= active | cpu_write_data;
                         // Key-on restarts every selected voice, including a
                         // voice whose active bit is already set.  Bucky
                         // rapidly reuses voices for event effects; suppressing
                         // an active-to-active retrigger leaves the new sample
                         // position latch unconsumed and silences later SFX.
-                        restart <= restart | din;
+                        restart <= restart | cpu_write_data;
                     end
                     if (update_at_keyon) begin
                         for (ci=0; ci<8; ci=ci+1) begin
-                            if (din[ci]) begin
+                            if (cpu_write_data[ci]) begin
                                 regs[(ci*32)+32'd12] <= pos_latch[(ci*3)+0];
                                 regs[(ci*32)+32'd13] <= pos_latch[(ci*3)+1];
                                 regs[(ci*32)+32'd14] <= pos_latch[(ci*3)+2];
@@ -431,6 +461,26 @@ always @(posedge clk) begin
                         end
                     end
                 end
+                // SiliconRE shows 0x22f bits 0/1/4/5 captured on the rising
+                // edge of its decoded active-low write strobe. D7 remains
+                // transparent above and D2/D3/D6 are unimplemented.
+                9'h12f: begin
+                    regs[9'h12f][0] <= cpu_write_data[0];
+                    regs[9'h12f][1] <= cpu_write_data[1];
+                    regs[9'h12f][4] <= cpu_write_data[4];
+                    regs[9'h12f][5] <= cpu_write_data[5];
+                end
+                default: begin
+                    if (cpu_write_addr[8] &&
+                        (cpu_write_addr[7:4] == 4'h0) && cpu_write_addr[0])
+                        regs[cpu_write_addr][0] <= cpu_write_data[0];
+                end
+            endcase
+        end
+        // Key-off is level-visible for the full decoded write strobe in the
+        // decapped start/stop block; release must not apply it a second time.
+        if (cpu_write_active) begin
+            case (addr)
                 9'h115: if (reg_updates) active <= active & ~din;
                 9'h12c: if (reg_updates) active <= din;
                 default: ;
@@ -441,12 +491,12 @@ always @(posedge clk) begin
         // 0x22e selects a bank and resets the pointer.  ROM-bank reads are
         // serviced by the streaming-ROM integration; the reverb bank is
         // available immediately through rram_port_dout above.
-        if (cs && we && (addr == 9'h12d))
+        if (cpu_write_commit && (cpu_write_addr == 9'h12d))
             read_ptr <= read_ptr + 17'd1;
         else if ((rb_cpu_read && !rb_read_seen) ||
                  (rr_cpu_read && !rr_cpu_read_seen))
             read_ptr <= read_ptr + 17'd1;
-        else if (cs && we && (addr == 9'h12e))
+        else if (cpu_write_active && (addr == 9'h12e))
             read_ptr <= 17'd0;
 
         if (cen) begin
@@ -553,7 +603,11 @@ always @(posedge clk) begin
                     if (w_loopen) begin
                         w_pos <= {1'b0, w_loop}; sample_rom_addr <= w_loop; sample_rom_cs <= 1'b1; state <= S_R8;
                     end else begin
-                        if (reg_updates && !keyon_retrigger[ch]) active[ch] <= 1'b0;
+                        // A key-on queued after this channel's S_LOAD belongs
+                        // to the replacement voice.  Do not let the old
+                        // in-flight sample's terminator retire it before the
+                        // next S_LOAD consumes the pending restart.
+                        if (reg_updates && !restart[ch] && !keyon_retrigger[ch]) active[ch] <= 1'b0;
                         w_val <= 16'sd0; state <= S_MIX;
                     end
                 end else begin
@@ -573,7 +627,7 @@ always @(posedge clk) begin
                     if (w_loopen) begin
                         w_pos <= {1'b0, w_loop}; sample_rom_addr <= w_loop; sample_rom_cs <= 1'b1; state <= S_R16L;
                     end else begin
-                        if (reg_updates && !keyon_retrigger[ch]) active[ch] <= 1'b0;
+                        if (reg_updates && !restart[ch] && !keyon_retrigger[ch]) active[ch] <= 1'b0;
                         w_val <= 16'sd0; state <= S_MIX;
                     end
                 end else begin
@@ -587,7 +641,7 @@ always @(posedge clk) begin
                     if (w_loopen) begin
                         w_pos <= {w_loop, 1'b0}; sample_rom_addr <= w_loop; sample_rom_cs <= 1'b1; state <= S_RD;
                     end else begin
-                        if (reg_updates && !keyon_retrigger[ch]) active[ch] <= 1'b0;
+                        if (reg_updates && !restart[ch] && !keyon_retrigger[ch]) active[ch] <= 1'b0;
                         w_val <= 16'sd0; state <= S_MIX;
                     end
                 end else begin
@@ -612,7 +666,12 @@ always @(posedge clk) begin
                 // channel's 0x0c..0x0e bytes while register updates are
                 // enabled.  This is observable through the Z80 readback
                 // path and is required by diagnostics.
-                if (reg_updates) begin
+                // A CPU key-on may commit a new latched start on this exact
+                // master-clock edge.  Give that command priority over the
+                // retiring voice's live-position mirror; otherwise S_LOAD
+                // consumes restart from the just-overwritten old/end address
+                // and the replacement effect is silent or malformed.
+                if (reg_updates && !restart[ch] && !keyon_retrigger[ch]) begin
                     regs[b1+9'h0c] <= (w_type == 2'd2) ? w_pos[8:1]  : w_pos[7:0];
                     regs[b1+9'h0d] <= (w_type == 2'd2) ? w_pos[16:9] : w_pos[15:8];
                     regs[b1+9'h0e] <= (w_type == 2'd2) ? w_pos[24:17] : w_pos[23:16];

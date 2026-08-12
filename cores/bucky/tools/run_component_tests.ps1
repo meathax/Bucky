@@ -1,3 +1,7 @@
+param(
+	[switch] $AudioOnly
+)
+
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $build = (Get-Command verilator-safe -ErrorAction Stop).Source
@@ -62,14 +66,25 @@ function Test-Component([string]$name, [string]$rtl, [string]$testbench) {
 	finally { Set-Location $simCwd }
 }
 
-Test-Component 'bucky_k054000' 'cores\bucky\hdl\bucky_k054000.v' 'cores\bucky\hdl\sim\tb_bucky_k054000.sv'
-Test-Component 'bucky_k054338' 'cores\bucky\hdl\bucky_k054338.v' 'cores\bucky\hdl\sim\tb_bucky_k054338.sv'
-Test-Component 'bucky_k053252' 'cores\bucky\hdl\bucky_k053252.v' 'cores\bucky\hdl\sim\tb_bucky_k053252.sv'
-Test-Component 'bucky_k056832_romrd' 'cores\bucky\hdl\bucky_k056832_romrd.v' 'cores\bucky\hdl\sim\tb_bucky_k056832_romrd.sv'
-Test-Component 'cowboys_lyro64' 'cores\bucky\hdl\cowboys_lyro64.v' 'cores\bucky\hdl\sim\tb_cowboys_lyro64.sv'
-Test-Component 'bucky_k053251_shadow' 'cores\bucky\hdl\k053251.v' 'cores\bucky\hdl\sim\tb_bucky_k053251_shadow.sv'
-Test-Component 'k053247_buffer_shadow_epoch' 'cores\bucky\hdl\k053247_buffer.v' 'cores\bucky\hdl\sim\tb_k053247_buffer_shadow_epoch.sv'
-Test-Component 'k053247_late_line_guard' 'cores\bucky\hdl\k053247_gate.v' 'cores\bucky\hdl\sim\tb_k053247_late_line_guard.sv'
+if (-not $AudioOnly) {
+	Test-Component 'bucky_k054000' 'cores\bucky\hdl\bucky_k054000.v' 'cores\bucky\hdl\sim\tb_bucky_k054000.sv'
+	Test-Component 'bucky_k054338' 'cores\bucky\hdl\bucky_k054338.v' 'cores\bucky\hdl\sim\tb_bucky_k054338.sv'
+	Test-Component 'bucky_k053252' 'cores\bucky\hdl\bucky_k053252.v' 'cores\bucky\hdl\sim\tb_bucky_k053252.sv'
+	Test-Component 'bucky_k056832_romrd' 'cores\bucky\hdl\bucky_k056832_romrd.v' 'cores\bucky\hdl\sim\tb_bucky_k056832_romrd.sv'
+	Test-Component 'cowboys_lyro64' 'cores\bucky\hdl\cowboys_lyro64.v' 'cores\bucky\hdl\sim\tb_cowboys_lyro64.sv'
+	Test-Component 'bucky_k053251_shadow' 'cores\bucky\hdl\k053251.v' 'cores\bucky\hdl\sim\tb_bucky_k053251_shadow.sv'
+	Test-Component 'k053247_buffer_shadow_epoch' 'cores\bucky\hdl\k053247_buffer.v' 'cores\bucky\hdl\sim\tb_k053247_buffer_shadow_epoch.sv'
+	Test-Component 'k053247_late_line_guard' 'cores\bucky\hdl\k053247_gate.v' 'cores\bucky\hdl\sim\tb_k053247_late_line_guard.sv'
+}
 Test-Component 'bucky_k054539' 'cores\bucky\hdl\k054539.v' 'cores\bucky\hdl\sim\tb_bucky_k054539.sv'
+Test-Component 'bucky_k054539_keyon_mix_collision' 'cores\bucky\hdl\k054539.v' 'cores\bucky\hdl\sim\tb_bucky_k054539_keyon_mix_collision.sv'
+Test-Component 'bucky_k054539_keyon_eof_collision' 'cores\bucky\hdl\k054539.v' 'cores\bucky\hdl\sim\tb_bucky_k054539_keyon_eof_collision.sv'
+Test-Component 'bucky_k054539_write_release' 'cores\bucky\hdl\k054539.v' 'cores\bucky\hdl\sim\tb_bucky_k054539_write_release.sv'
+Test-Component 'bucky_k054539_gated_rom' 'cores\bucky\hdl\k054539.v' 'cores\bucky\hdl\sim\tb_bucky_k054539_gated_rom.sv'
+Test-Component 'bucky_k054539_reverb_rmw' 'cores\bucky\hdl\k054539.v' 'cores\bucky\hdl\sim\tb_bucky_k054539_reverb_rmw.sv'
 Test-Component 'bucky_k054539_deadline' 'cores\bucky\hdl\k054539.v' 'cores\bucky\hdl\sim\tb_bucky_k054539_deadline.sv'
-Write-Output 'PASS: strict video, sprite-priority/ownership, sprite-cache and K054539 component tests'
+if ($AudioOnly) {
+	Write-Output 'PASS: strict K054539 component tests'
+} else {
+	Write-Output 'PASS: strict video, sprite-priority/ownership, sprite-cache and K054539 component tests'
+}

@@ -140,26 +140,102 @@ end
 // Inocua para sintesis (bajo `ifdef SIMULATION`).
 // ---------------------------------------------------------------------------
 `ifdef SIMULATION
-integer fk39_w, fk39_r, flatch;
-reg     k39w_d, k39r_d, k21r_d, latch_we_d;
+integer fk39_w, fk39_r, fk39_ctx, fk39_fetch, fk39_span, flatch;
+reg     k39w_d, k39r_d, k21r_d, latch_we_d, z80_fetch_d;
 integer fz80, z80_diag_count;
 reg     z80_bus_d;
+integer k39w_seq, k39_fetch_count;
+integer k39_span_seq, k39_span_clocks;
+reg     k39_span_active, k39_span_cen_seen, k39_span_sload_seen;
+reg     k39_span_bus_changed;
+reg [10:0] k39_span_addr;
+reg [ 7:0] k39_span_data;
 initial begin
     fk39_w = $fopen("k539_core_writes.txt","w");
     fk39_r = $fopen("k539_core_reads.txt","w");
+    fk39_ctx = $fopen("k539_core_context.txt","w");
+    fk39_fetch = $fopen("k539_z80_fetch_context.txt","w");
+    fk39_span = $fopen("k539_write_spans.txt","w");
     flatch = $fopen("snd_latch_reads.txt","w");
     fz80 = $fopen("z80_core_trace.txt","w");
     z80_diag_count = 0;
+    k39w_seq = 0;
+    k39_fetch_count = 0;
+    k39_span_seq = 0; k39_span_clocks = 0;
+    k39_span_active = 0; k39_span_cen_seen = 0;
+    k39_span_sload_seen = 0; k39_span_bus_changed = 0;
+    k39_span_addr = 0; k39_span_data = 0;
     k39w_d = 0; k39r_d = 0; k21r_d = 0; latch_we_d = 0;
-    z80_bus_d = 0;
+    z80_bus_d = 0; z80_fetch_d = 0;
 end
 always @(posedge clk) begin
     k39w_d <= k39_cs && !wr_n;
     k39r_d <= k39_cs && !rd_n;
     k21r_d <= k21_cs && !rd_n;
     latch_we_d <= latch_we;
-    if( (k39_cs && !wr_n) && !k39w_d )  // flanco: 1 log por ciclo de bus
+    z80_fetch_d <= !m1_n && !mreq_n && !rd_n;
+    // Raw-clock write-span telemetry.  The chip-facing CPU port is sampled
+    // at this 48 MHz clock, while a Z80 write can remain asserted across
+    // several such edges.  Record the complete span and whether the PCM
+    // sequencer reached S_LOAD during it; this distinguishes an authentic
+    // single bus transaction from repeated level-sensitive key-on handling.
+    if ((k39_cs && !wr_n) && !k39w_d) begin
+        k39_span_active      <= 1'b1;
+        k39_span_seq         <= k39w_seq;
+        k39_span_clocks      <= 1;
+        k39_span_addr        <= A[10:0] & 11'h3ff;
+        k39_span_data        <= cpu_dout;
+        k39_span_cen_seen    <= cen_pcm;
+        k39_span_sload_seen  <= cen_pcm && (u_k054539.state == 4'd1);
+        k39_span_bus_changed <= 1'b0;
+    end else if (k39_cs && !wr_n) begin
+        k39_span_clocks      <= k39_span_clocks + 1;
+        k39_span_cen_seen    <= k39_span_cen_seen || cen_pcm;
+        k39_span_sload_seen  <= k39_span_sload_seen ||
+                                (cen_pcm && (u_k054539.state == 4'd1));
+        k39_span_bus_changed <= k39_span_bus_changed ||
+                                ((A[10:0] & 11'h3ff) != k39_span_addr) ||
+                                (cpu_dout != k39_span_data);
+    end else if (k39_span_active) begin
+        $fwrite(fk39_span,
+                "seq=%0d addr=%03x data=%02x raw_clocks=%0d cen_pcm_seen=%b sload_seen=%b bus_changed=%b\n",
+                k39_span_seq, k39_span_addr, k39_span_data,
+                k39_span_clocks, k39_span_cen_seen,
+                k39_span_sload_seen, k39_span_bus_changed);
+        k39_span_active <= 1'b0;
+    end
+    if( (k39_cs && !wr_n) && !k39w_d ) begin // flanco: 1 log por ciclo de bus
         $fwrite(fk39_w, "%03x %02x\n", A[10:0] & 11'h3ff, cpu_dout);
+        // Domain-local accepted-write context.  Keep the legacy two-column
+        // stream above unchanged for the strict MAME comparator; this paired
+        // stream attributes an insertion/deletion to its Z80 producer without
+        // deduplicating or otherwise altering the functional transaction.
+        $fwrite(fk39_ctx,
+                "seq=%0d pc=%04x sp=%04x ix=%04x iy=%04x addr=%03x data=%02x int_n=%b nmi_n=%b m1_n=%b cen_g=%b cpu_cen=%b latch_intn=%b\n",
+                k39w_seq,
+                u_cpu.u_sysz80_nvram.u_z80wait.u_z80_devwait.u_cpu.u_cpu.PC,
+                u_cpu.u_sysz80_nvram.u_z80wait.u_z80_devwait.u_cpu.u_cpu.SP,
+                u_cpu.u_sysz80_nvram.u_z80wait.u_z80_devwait.u_cpu.u_cpu.IX,
+                u_cpu.u_sysz80_nvram.u_z80wait.u_z80_devwait.u_cpu.u_cpu.IY,
+                A[10:0] & 11'h3ff, cpu_dout, int_n, nmi_n, m1_n,
+                cen_g, cpu_cen, latch_intn);
+        k39w_seq = k39w_seq + 1;
+    end
+    // Bounded opcode breadcrumbs around the first mismatching K054539
+    // sequence.  The device-write PC is the common store subroutine (2797),
+    // so retain the caller path and stack depth without opening a full wave.
+    if (k39w_seq >= 18 && k39_fetch_count < 12000 &&
+        (!m1_n && !mreq_n && !rd_n) && !z80_fetch_d) begin
+        $fwrite(fk39_fetch,
+                "seq=%0d kseq=%0d pc=%04x op=%02x sp=%04x ix=%04x int_n=%b nmi_n=%b\n",
+                k39_fetch_count, k39w_seq,
+                u_cpu.u_sysz80_nvram.u_z80wait.u_z80_devwait.u_cpu.u_cpu.PC,
+                cpu_din,
+                u_cpu.u_sysz80_nvram.u_z80wait.u_z80_devwait.u_cpu.u_cpu.SP,
+                u_cpu.u_sysz80_nvram.u_z80wait.u_z80_devwait.u_cpu.u_cpu.IX,
+                int_n, nmi_n);
+        k39_fetch_count = k39_fetch_count + 1;
+    end
     if( (k39_cs && !rd_n) && !k39r_d )
         $fwrite(fk39_r, "%03x\n", A[10:0] & 11'h3ff);
     // lecturas del latch de comandos (68k->Z80): A[1:0] + dato leido + estado IRQ

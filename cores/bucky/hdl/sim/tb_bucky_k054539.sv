@@ -31,6 +31,7 @@ module tb_bucky_k054539;
         begin
             @(negedge clk); addr=a; din=d; cs=1; we=1; rd=0;
             @(posedge clk); #1; cs=0; we=0;
+            @(posedge clk); #1; // physical write commits after strobe release
         end
     endtask
 
@@ -94,7 +95,7 @@ module tb_bucky_k054539;
         end
         wr(9'h115,8'h01);
 
-        // A key-on arriving on the same clock as an EOF response must win
+        // A key-on release arriving on the same clock as an EOF response must win
         // over the sequencer's attempt to retire the old sample. SiliconRE
         // shows key-on is queued for the next sequence; losing active here
         // leaves restart armed on a channel that S_LOAD will skip forever.
@@ -103,7 +104,7 @@ module tb_bucky_k054539;
         dut.restart=8'h00;
         dut.ch=3'd0;
         dut.state=4'd3;          // S_R8
-        cen=1;
+        cen=0;
         rom_data=8'h80;         // 8-bit EOF marker
         rom_ok=1;
         addr=9'h114;
@@ -111,13 +112,15 @@ module tb_bucky_k054539;
         cs=1;
         we=1;
         rd=0;
+        repeat(2) @(posedge clk);
+        @(negedge clk); cs=0; we=0; cen=1;
         @(posedge clk); #1;
         if (!dut.active[0] || !dut.restart[0]) begin
             $display("FAIL K054539 same-cycle EOF/key-on lost request active=%b restart=%b",
                      dut.active[0], dut.restart[0]);
             failures=failures+1;
         end
-        cs=0; we=0; cen=0; rom_ok=0;
+        cen=0; rom_ok=0;
         dut.state=4'd0;          // isolate the following data-port checks
         dut.active=8'h00;
         dut.restart=8'h00;

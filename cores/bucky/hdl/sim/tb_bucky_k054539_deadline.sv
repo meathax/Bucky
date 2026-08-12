@@ -40,6 +40,7 @@ module tb_bucky_k054539_deadline;
         begin
             @(negedge clk); addr=a; din=d; cs=1; we=1; rd=0;
             @(posedge clk); #1; cs=0; we=0;
+            @(posedge clk); #1; // physical write commits after strobe release
         end
     endtask
 
