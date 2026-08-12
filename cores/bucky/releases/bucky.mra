@@ -8,8 +8,8 @@
     <rom index="0" zip="bucky.zip" address="0x30000000">
         <!-- Byte offsets for each ROM region. -->
         <part>
-            00 00 40 02 80 02 80 04
-            80 0C 00 00 00 00 00 00
+            00 00 40 02 80 06 80 08
+            80 10 00 00 00 00 00 00
         </part>
         <!-- maincpu - starts at 0x0 - length 0x240000 (22 bits) -->
         <interleave output="16">
@@ -23,21 +23,21 @@
         </interleave>
         <!-- soundcpu - starts at 0x240000 - length 0x40000 (18 bits) -->
         <part name="173a07.f5" crc="4cdaee71"/>
-        <!-- k056832 - starts at 0x280000 - length 0x200000 (21 bits) -->
+        <!-- pcm - starts at 0x280000 - length 0x400000 (22 bits) -->
+        <part name="173a08.b6" crc="dcdded95"/>
+        <part name="173a09.a6" crc="c93697c4"/>
+        <!-- k056832 - starts at 0x680000 - length 0x200000 (21 bits) -->
         <interleave output="32">
             <part name="173a05.t8" crc="d14333b4" map="0021"/>
             <part name="173a06.t10" crc="6541a34f" map="2100"/>
         </interleave>
-        <!-- obj - starts at 0x480000 - length 0x800000 (23 bits) -->
+        <!-- obj - starts at 0x880000 - length 0x800000 (23 bits) -->
         <interleave output="64">
             <part name="173a10.b8" crc="42fb0a0c" map="00000021"/>
             <part name="173a11.a8" crc="b0d747c4" map="00002100"/>
             <part name="173a12.b10" crc="0fc2ad24" map="00210000"/>
             <part name="173a13.a10" crc="4cf85439" map="21000000"/>
         </interleave>
-        <!-- pcm - starts at 0xC80000 - length 0x400000 (22 bits) -->
-        <part name="173a08.b6" crc="dcdded95"/>
-        <part name="173a09.a6" crc="c93697c4"/>
         <!-- eeprom - starts at 0x1080000 - length 0x80 (7 bits) -->
         <part name="bucky.nv" crc="6a5986f3"/>
         <!-- Total 0x1080080 bytes - 16896 kBytes -->

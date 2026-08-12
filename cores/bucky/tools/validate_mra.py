@@ -6,6 +6,21 @@ import xml.etree.ElementTree as ET
 
 EXPECTED = {"bucky", "buckyea", "buckyjaa", "buckyuab", "buckyaab", "buckyaa"}
 EXPECTED_RBF = "Arcade-Bucky"
+EXPECTED_HEADER = [
+    0x00, 0x00,  # bank 0: maincpu
+    0x40, 0x02,  # bank 1: soundcpu + PCM
+    0x80, 0x06,  # bank 2: K056832 tiles
+    0x80, 0x08,  # bank 3: K053246 objects
+    0x80, 0x10,  # PROM start: EEPROM
+]
+EXPECTED_REGION_MARKERS = [
+    "maincpu - starts at 0x0 - length 0x240000",
+    "soundcpu - starts at 0x240000 - length 0x40000",
+    "pcm - starts at 0x280000 - length 0x400000",
+    "k056832 - starts at 0x680000 - length 0x200000",
+    "obj - starts at 0x880000 - length 0x800000",
+    "eeprom - starts at 0x1080000 - length 0x80",
+]
 FORBIDDEN_TAGS = {
     "about", "mratimestamp", "mameversion", "year", "manufacturer",
     "players", "region", "homebrew", "bootleg",
@@ -55,11 +70,21 @@ def validate(path: Path) -> str:
             errors.append("ROM type attribute must be omitted")
     main_rom = root.find("rom[@index='0']")
     header = [] if main_rom is None else [int(x, 16) for x in (main_rom.findtext("part") or "").split()]
-    if header[:10] != [0x00,0x00,0x40,0x02,0x80,0x02,0x80,0x04,0x80,0x0c]:
-        errors.append("ROM header offsets do not match GX173 stream layout")
+    if header[:10] != EXPECTED_HEADER:
+        errors.append(
+            "ROM header must map sound+PCM to SDRAM bank 1 and reserve "
+            "boundary 4 for PROM: " + " ".join(f"{value:02X}" for value in EXPECTED_HEADER)
+        )
     raw = path.read_text(encoding="utf-8")
-    if "eeprom - starts at 0x1080000 - length 0x80" not in raw:
-        errors.append("EEPROM is not at stream offset 0x1080000")
+    marker_positions = [raw.find(marker) for marker in EXPECTED_REGION_MARKERS]
+    if any(position < 0 for position in marker_positions):
+        missing_markers = [
+            marker for marker, position in zip(EXPECTED_REGION_MARKERS, marker_positions)
+            if position < 0
+        ]
+        errors.append("missing corrected ROM layout marker(s): " + "; ".join(missing_markers))
+    elif marker_positions != sorted(marker_positions):
+        errors.append("ROM regions must be ordered maincpu,soundcpu,pcm,k056832,obj,eeprom")
     buttons = root.find("buttons")
     if buttons is None or buttons.attrib.get("count") != "3":
         errors.append("three action buttons are required")

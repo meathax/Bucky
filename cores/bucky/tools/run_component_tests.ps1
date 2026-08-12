@@ -76,6 +76,7 @@ if (-not $AudioOnly) {
 	Test-Component 'k053247_buffer_shadow_epoch' 'cores\bucky\hdl\k053247_buffer.v' 'cores\bucky\hdl\sim\tb_k053247_buffer_shadow_epoch.sv'
 	Test-Component 'k053247_late_line_guard' 'cores\bucky\hdl\k053247_gate.v' 'cores\bucky\hdl\sim\tb_k053247_late_line_guard.sv'
 }
+Test-Component 'bucky_download_layout' '.workbench\upstream\jtcores\modules\jtframe\hdl\sdram\jtframe_dwnld.v' 'cores\bucky\hdl\sim\tb_bucky_download_layout.sv'
 Test-Component 'bucky_k054539' 'cores\bucky\hdl\k054539.v' 'cores\bucky\hdl\sim\tb_bucky_k054539.sv'
 Test-Component 'bucky_k054539_keyon_mix_collision' 'cores\bucky\hdl\k054539.v' 'cores\bucky\hdl\sim\tb_bucky_k054539_keyon_mix_collision.sv'
 Test-Component 'bucky_k054539_keyon_eof_collision' 'cores\bucky\hdl\k054539.v' 'cores\bucky\hdl\sim\tb_bucky_k054539_keyon_eof_collision.sv'

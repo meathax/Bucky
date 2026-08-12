@@ -41,9 +41,8 @@ JTFRAME_IOCTL_RD=128
 [mister]
 JTFRAME_ARX=4
 JTFRAME_ARY=3
-# Match the stock MiSTer OSD background (OSD_COLOR=3'd4). Its background
-# channel prefixes are 01/00/00; JTFRAME accepts those two-bit prefixes
-# directly, so 6'b010000 replaces its grey 6'b111111 default.
+# Match the normal MiSTer OSD background colour. Removing this override would
+# restore JTFRAME's mature-core grey background (6'h3f).
 JTFRAME_OSDCOLOR=16
 JTFRAME_OSD_NOLOGO
 

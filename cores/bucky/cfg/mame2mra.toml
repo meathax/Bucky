@@ -19,7 +19,10 @@ names=[{machine="bucky",names="Shoot,Jump,Special"}]
 
 [header]
 info="Byte offsets for each ROM region."
-offset={bits=12,reverse=true,regions=["maincpu","soundcpu","k056832","obj","pcm"]}
+# Non-XL JTFRAME has four SDRAM banks.  With five BALUT entries the fifth
+# boundary is PROM start, so PCM must share bank 1 with the sound ROM and the
+# EEPROM region must provide the final PROM boundary.
+offset={bits=12,reverse=true,regions=["maincpu","soundcpu","k056832","obj","eeprom"]}
 frames=[{width=8}]
 
 [ROM]
@@ -31,7 +34,7 @@ regions=[
     {name="k054539",rename="pcm"},
     {name="eeprom"},
 ]
-order=["maincpu","soundcpu","k056832","obj","pcm","eeprom"]
+order=["maincpu","soundcpu","pcm","k056832","obj","eeprom"]
 
 # The three physical region defaults differ in byte 10 and checksum. Sets not
 # listed inherit the EAB data, which matches their MAME ROM declaration.

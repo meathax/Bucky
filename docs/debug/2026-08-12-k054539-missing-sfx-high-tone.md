@@ -2,18 +2,81 @@
 
 ## Symptom
 
-The affected MiSTer RBF plays background music and the player's shooting
+The affected MiSTer setup plays background music and the player's shooting
 sound, but most other effects are absent.  An intermittent high-pitched tone
-also appears during play.  The RBF loaded for that report was
+also appears during play.  The first reported RBF was
 `Arcade-Bucky_20260812.rbf`, 3,756,204 bytes, SHA-256
 `b4cc50b287c0dda7da6b5ee9d756109395446bdf04681e386fb4f8a31a6ee14f`.
-It predates the working-tree corrections recorded below.
+A fresh post-RTL-fix RBF, SHA-256
+`23bf8b4abc3322363f5198cccbc592a94d8e81d88b55dbef60eda0d7948530cd`,
+reproduced the same dominant missing-sound symptom.  That hardware result
+rejects the earlier assumption that the K054539 RTL corrections alone closed
+the release failure.
 
-Focused strict RTL tests now close three independently reproduced K054539
-defects.  The complete component suite, strict parent rebuild and first clean
-35-frame parent run also pass, as does an independent byte-identical cold
-repeat.  This is source-level closure, not yet a claim that all audio is
-confirmed on MiSTer: a new hardware build/test remains pending.
+Focused strict RTL tests still close three independently reproduced K054539
+defects.  The complete component suite and duplicate parent runs pass, but the
+parent harness preloads PCM directly and therefore masked the real
+hardware-only download-layout failure described next.
+
+## Hardware retest and true release root cause
+
+The installed MRA places PCM at stream byte `0xC80000`, exactly at header
+boundary 4.  The generated non-XL target instantiates `jtframe_dwnld` with
+`BALUT_LEN=5`.  In that configuration entries 0-3 are SDRAM bank starts and
+entry 4 is **PROM start**.  Every PCM byte therefore asserted `prom_we` while
+`prog_we` was suppressed.  Bucky has no PCM consumer on `prom_we`, yet runtime
+K054539 reads target SDRAM bank 1 at local byte offset `0x40000`.  The complete
+4 MiB sample region was never written where the core reads it.
+
+The old stream was:
+
+```text
+bank 0  maincpu   0x000000-0x23ffff
+bank 1  soundcpu  0x240000-0x27ffff
+bank 2  tiles     0x280000-0x47ffff
+bank 3  objects   0x480000-0xc7ffff
+PROM    PCM       0xc80000-0x107ffff  <- wrong
+```
+
+This explains both the breadth and hardware-only nature of the symptom.  The
+YM2151 can still produce music/tone content, while K054539 voices read
+unwritten or stale SDRAM.  The missing PCM is **KNOWN** from downloader logic
+and exact installed-MRA bytes; attribution of the intermittent high tone to
+the stale PCM contents remains **INFERRED** until the corrected MRA is heard
+on hardware.
+
+The parent Verilator harness did not traverse `jtframe_dwnld` or the MRA.  It
+loaded `pcm.hex` into a private array and fabricated bank-1 responses at the
+runtime offset, so all prior K054539 tests could pass while the hardware ROM
+download remained broken.
+
+## Minimal release fix
+
+No RTL or RBF change is required for this causal error.  The MRA generator now
+orders regions `maincpu,soundcpu,pcm,k056832,obj,eeprom` and emits bank/PROM
+boundaries:
+
+```text
+00 00 40 02 80 06 80 08 80 10
+```
+
+PCM starts at stream `0x280000`, which is bank-1 local byte offset `0x40000`
+and exactly matches `PCM_OFFSET=0x20000` SDRAM words.  Tiles and objects begin
+at `0x680000` and `0x880000`; EEPROM remains at `0x1080000` and now correctly
+owns PROM start.
+
+The old installed MRA is SHA-256
+`0f58f825b29a5689833612ef0a17962621653a7d524cb1e4f9fc402472e47500`.
+The corrected release MRA is SHA-256
+`6f7b36b6ff00c9cbcdcc3bcc4c3dbd126346e01b211890a257473074f75332ce`.
+
+`validate_mra.py` fails the old header/order and passes the corrected release.
+`tb_bucky_download_layout` drives the real `jtframe_dwnld` implementation and
+proves PCM offsets `0`, `0x1fffff`, `0x200000` and `0x3fffff` all reach SDRAM
+bank 1 with the correct word address/lane.  It also proves tile, object and
+EEPROM starts route to bank 2, bank 3 and PROM respectively.  The complete
+strict audio component suite and source/provenance gate pass with this new
+regression.
 
 ## Scenario and first divergence
 
@@ -135,7 +198,7 @@ stable.  `tb_bucky_k054539_gated_rom` holds a 20-master-clock response and
 passes (`task-audio_component_regression-20260812T050304111570Z`).  No held-CS
 functional change was made.
 
-## Minimal fix
+## Earlier K054539 RTL fixes
 
 All functional corrections are confined to `cores/bucky/hdl/k054539.v`:
 
@@ -146,8 +209,9 @@ All functional corrections are confined to `cores/bucky/hdl/k054539.v`:
 - model the K054539's hybrid transparent/level/release CPU-write phases and
   commit release-triggered operations exactly once.
 
-No YM NMI, ROM mapping, mixer, clock, reset, MiSTer framework, PLL, constraint
-or top-level I/O path was changed.
+Those earlier functional RTL corrections did not change YM NMI, mixer, clock,
+reset, MiSTer framework, PLL, constraint or top-level I/O paths.  The separate
+release correction above changes MRA stream ordering, not RTL ROM addressing.
 
 ## Regression
 
@@ -198,9 +262,9 @@ the declared parent cold gate are closed.
 
 ## Remaining uncertainty
 
-- The fixed RTL has not been synthesized into an RBF or tested on MiSTer.  Only
-  a new hardware run can confirm that all effects are audible and the high tone
-  is absent in the user's gameplay sequence.
+- The corrected MRA has not yet been replayed on MiSTer.  The existing fresh
+  RBF can be reused; only a relaunch through the corrected MRA is required to
+  confirm all effects are audible and the high tone is absent.
 - Exact digital-audio equivalence through a complete gameplay interval is not
   yet captured; focused device contracts close the proven causes but do not
   substitute for that longer waveform comparison.

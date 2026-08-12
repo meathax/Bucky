@@ -12,28 +12,28 @@ line-ownership paths.
 
 | Field | Value |
 |---|---|
-| Action | Three causal K054539 corrections implemented in RTL; focused tests duplicated |
-| Scenario | Reverb RMW, rapid voice replacement, held Z80 write, gated sample ROM and 48 kHz deadline |
-| Stage | Focused/complete component suites and duplicate fresh strict parent cold runs pass |
-| Last completed run | `task-audio_boot_capture-20260812T054826223124Z`, 35 frames / 27,574,289 cycles |
-| Last matching event/checkpoint | Duplicate frame-35 stop with zero PCM misses and byte-identical K054539 write/context/span/latch evidence |
-| First mismatch/evidence gap | No source-level mismatch remains; only new real-MiSTer audio verification is pending |
+| Action | Corrected the MRA download layout so all 4 MiB of K054539 PCM enter SDRAM bank 1 |
+| Scenario | Real non-XL `jtframe_dwnld` with the release MRA header and all PCM seam/boundary addresses |
+| Stage | Old MRA fails the new release validator; corrected MRA, source gate and complete audio component suite pass |
+| Last completed run | `cores/bucky/tools/run_component_tests.ps1 -AudioOnly`, including `tb_bucky_download_layout` |
+| Last matching event/checkpoint | PCM offsets `0`, `0x1fffff`, `0x200000`, `0x3fffff` route to bank 1; tile/object/PROM starts route to banks 2/3/PROM |
+| First mismatch/evidence gap | Corrected MRA has not yet been replayed on real MiSTer |
 | RTL edits permitted | YES, one evidenced causal correction at a time |
-| Quartus state | Not invoked for the audio correction; no new RBF built |
-| Hardware state | Reported RBF SHA-256 `b4cc50b2...e14f` has missing effects/high tone and predates these fixes; prior video fixes also await hardware confirmation |
+| Quartus state | Not invoked; the dominant fix is MRA-only and does not require a new RBF |
+| Hardware state | Fresh RBF `23bf8b4a...30cd` reproduced the symptom with installed broken MRA `0f58f825...7500`; corrected MRA is `6f7b36b6...32ce` |
 
 ## Next valid action
 
-A new explicit RBF request is required before Quartus may run.  The resulting
-MiSTer test must exercise rapid gameplay effects and
-confirm all sounds, no intermittent tone, full circular shadows and no opaque
-center blocks.
+Install the corrected `bucky.mra`, relaunch the existing fresh RBF through that
+MRA, and exercise rapid gameplay effects.  No Quartus/RBF build is needed for
+this test.  Confirm all sounds and absence of the intermittent tone; video
+fixes remain a separate hardware gate.
 
 ## Blocking evidence gaps
 
 | ID | Gap | Why blocking | Smallest next experiment |
 |---|---|---|---|
-| HW-AUDIO-1 | Fixed RTL has not been loaded on MiSTer | The reported RBF predates the fixes, so only hardware can confirm all gameplay effects and absence of the tone | On a freshly authorized RBF, replay the same gameplay sequence and record direct/camera audio |
+| HW-AUDIO-1 | Corrected MRA has not been replayed on MiSTer | The fresh RBF still received no PCM because the old MRA routed that region to `prom_we` | Install MRA SHA-256 `6f7b36b6...32ce`, relaunch the existing RBF and replay the same gameplay sequence |
 | HW-PERF-1 | No automated dense moving-gameplay PCB capture | Static/early simulation cannot prove absence of late sprite ownership errors | Load the fresh RBF and repeat the known dense scene while moving |
 | VIDEO-1 | Exact PCB raster totals are not measured | MAME's configured 60 Hz is HLE and not physical timing proof | Measure CE/HS/VS totals on the deployed RBF before changing 512x264 timing |
 | HW-VIDEO-2 | Fixed RTL has not been loaded on MiSTer | Camera footage proves the old RBF symptom, while simulation proves only the causal contracts | Build only on explicit request, then recapture 0:00.7-0:01.4 of the same sequence |
@@ -42,6 +42,9 @@ center blocks.
 
 - Only SDRAM bank 3 retains the four-beat sprite-line burst; banks 0-2 use
   their normal cache geometry.
+- The non-XL five-entry download header maps bank starts 0-3 followed by PROM
+  start.  K054539 PCM immediately follows the sound ROM in bank 1 at local byte
+  offset `0x40000`; EEPROM, not PCM, owns the fifth/PROM boundary.
 - The generated wrapper must instantiate `cowboys_lyro64`; validation rejects
   a stock `jtframe_rom_1slot` on bank 3.
 - K054539 sample commits remain 384 enables apart, CPU data-port reads do not

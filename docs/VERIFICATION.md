@@ -40,6 +40,7 @@ A scenario passes only when:
 | R013 | K054539 ROM bus | SDRAM wait gating drops or changes a sample request before `rom_ok` | `tb_bucky_k054539_gated_rom`, 20 raw-clock response delay | PASS |
 | R014 | complete component integration | Audio RTL changes regress another component contract | `task-audio_component_regression-20260812T054431118208Z`, fingerprint `63b39eab...` | PASS |
 | R015 | fresh parent integration | Audio RTL changes break cold reset, determinism, source closure or aggregate deadlines | Strict binary SHA-256 `CE086B8D...30C22C`; cold receipts `...054514934181Z` / `...054826223124Z`, each 35 frames / 27,574,289 cycles with zero PCM misses and byte-identical audio evidence | PASS |
+| R016 | MRA/JTFRAME downloader | PCM begins at the fifth non-XL BALUT boundary and is sent to `prom_we` instead of SDRAM | Corrected-header validator plus `tb_bucky_download_layout`; first/two-ROM-seam/last PCM bytes in bank 1, tile/object in banks 2/3, EEPROM at PROM | PASS |
 
 ## Reset and initialization matrix
 
@@ -86,7 +87,7 @@ Define exact memory/register regions, width/endian transform and capture phase.
 | cold boot | parent Verilator SHA-256 `8A54A575...F3A1B` | 60 cold frames, strict assertions | Final VBlank; zero PCM misses/zero post-reset sprite overruns | PASS |
 | dense moving gameplay | fresh RBF pending | Known real-hardware stress scene with movement | Correct pitch; no cuts, ghosts or stale lines | PENDING |
 | Stage 1 shadow/center artifact | source video SHA-256 `4218B378...6D421`; fixed RBF not built | Replay the same ship/character entrance and Stage 1 title | Full circular shadows; no opaque center block; camera tear assessed separately | PENDING |
-| gameplay audio completeness | affected RBF SHA-256 `b4cc50b2...e14f`; fixed RBF not built | Replay rapid fire, enemy events, pickups/explosions and dense gameplay used in the report | BGM plus every expected effect; no intermittent high tone | PENDING |
+| gameplay audio completeness | fresh RBF SHA-256 `23bf8b4a...30cd`; installed broken MRA `0f58f825...7500`; corrected MRA `6f7b36b6...32ce` | Install corrected MRA, relaunch the existing RBF, then replay rapid fire, enemy events, pickups/explosions and dense gameplay | BGM plus every expected effect; no intermittent high tone | PENDING |
 
 The K054539 boot write-stream comparison carries one reviewed expected-reference
 exception after matching ordinals 0-33: RTL executes the PCB-supported YM2151
