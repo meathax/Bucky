@@ -84,7 +84,7 @@ These are regional or program revisions of the same GX173 game.
 | Meathax and Bucky MiSTer contributors | GX173 integration, device RTL, debugging, hardware testing, packaging and maintenance |
 | [Jose Tejada Gómez / Jotego](https://github.com/jotego/jtcores) and jtcores contributors | JTFRAME, CPU/audio building blocks and MiSTer infrastructure; upstream notices retained |
 | Rafael Eduardo Paiva Feener and Miki Saito | Contributions credited by the inherited Konami video/sprite sources |
-| [jlrh/konami-fpga Moo Mesa core](https://github.com/jlrh/konami-fpga/tree/5e890383/cores/moomesa) contributors | GPLv3 GX151/GX173-family donor architecture adapted into the independent Bucky tree |
+| [jlrh/konami-fpga](https://github.com/jlrh/konami-fpga) Moo Mesa core contributors | GPLv3 GX151/GX173-family donor architecture, specifically the pinned [`cores/moomesa`](https://github.com/jlrh/konami-fpga/tree/5e890383/cores/moomesa) tree, adapted into the independent Bucky source tree |
 | [MAME](https://github.com/mamedev/mame) contributors | `moo.cpp`, K054539 behavior and observable software contracts used as a reference model |
 | Furrtek and SiliconRE contributors | Reconstructed Konami K054000/K054338 schematics, traces and pin documentation |
 | [MiSTer-devel Template_MiSTer](https://github.com/MiSTer-devel/Template_MiSTer) contributors | Official MiSTer project, framework and packaging conventions |

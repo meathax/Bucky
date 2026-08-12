@@ -1,5 +1,15 @@
 {
   "schema_version": 4,
-  "donors": [],
+  "donors": [
+    {
+      "id": "D001",
+      "name": "Existing Moo Mesa core",
+      "url": "https://github.com/jlrh/konami-fpga",
+      "upstream_path": "cores/moomesa",
+      "revision": "5e890383",
+      "license": "GPLv3",
+      "role": "GX151/GX173-family CPU, video, sound, SDRAM and I/O donor adapted into the independent Bucky source tree"
+    }
+  ],
   "reused_files": []
 }
