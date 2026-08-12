@@ -124,7 +124,7 @@ def main() -> int:
     files = sorted({p for root in roots for p in ([root] if root.is_file() else root.glob("*.mra"))})
     found = {validate(path) for path in files}
     if parent_only and "bucky" not in found:
-        raise ValueError("parent-only validation requires bucky.mra")
+        raise ValueError("parent-only validation requires Bucky O'Hare.mra")
     missing = set() if parent_only else EXPECTED - found
     if missing:
         raise ValueError("missing sets: " + ", ".join(sorted(missing)))

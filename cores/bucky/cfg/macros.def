@@ -41,9 +41,6 @@ JTFRAME_IOCTL_RD=128
 [mister]
 JTFRAME_ARX=4
 JTFRAME_ARY=3
-# Match the normal MiSTer OSD background colour. Removing this override would
-# restore JTFRAME's mature-core grey background (6'h3f).
-JTFRAME_OSDCOLOR=16
 JTFRAME_OSD_NOLOGO
 
 [mist|sidi]

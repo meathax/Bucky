@@ -71,6 +71,7 @@ releases/
 cores/**/releases/
 !cores/bucky/releases/
 !cores/bucky/releases/*.mra
+!cores/bucky/releases/*.rbf
 
 __pycache__/
 *.pyc

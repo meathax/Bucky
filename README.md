@@ -8,13 +8,10 @@ MiSTer FPGA platform.
 - **Display:** horizontal 384×224, 4:3, 15 kHz-class timing
 - **Players:** one to four
 - **Framework:** JTFRAME / jtcores
-- **Repository policy:** source, configuration, tests and documentation only;
-  no ROMs, generated Quartus databases or RBF files
-
-The core boots and runs on real MiSTer hardware. The source includes the
-hardware-verified sprite/shadow corrections and the K054539 active-voice
-retrigger correction for event sound effects. Reproducible source-validation
-and build details are in [BUILD.md](BUILD.md).
+- **Repository policy:** source, configuration, tests and documentation are
+  tracked alongside the release MRA and latest built RBF in
+  `cores/bucky/releases/`; ROMs and generated Quartus databases remain excluded
+  from Git.
 
 ## Features in the OSD
 
@@ -28,8 +25,7 @@ and build details are in [BUILD.md](BUILD.md).
 | Service / Test | MiSTer service input and the board's test-mode control |
 | NVRAM | Save and restore the 128-byte serial EEPROM |
 
-The OSD uses the standard MiSTer red-tinted palette rather than JTFRAME's grey
-background override.
+The OSD uses JTFRAME's default mature-core grey background.
 
 ## PCB Accuracy
 
@@ -44,19 +40,11 @@ are listed here. Simulation success alone is not treated as PCB evidence.
 
 ## Supported games
 
-The source configuration supports all six Bucky O'Hare revisions in MAME's
-`bucky` machine family:
+The core supports the EBA version of Bucky O'Hare:
 
 | Game / revision | MAME set |
 |---|---|
-| Bucky O'Hare (ver EAB) | `bucky` |
-| Bucky O'Hare (ver EA) | `buckyea` |
-| Bucky O'Hare (ver JAA) | `buckyjaa` |
-| Bucky O'Hare (ver UAB) | `buckyuab` |
-| Bucky O'Hare (ver AAB) | `buckyaab` |
-| Bucky O'Hare (ver AA) | `buckyaa` |
-
-These are regional or program revisions of the same GX173 game.
+| Bucky O'Hare (EBA version) | `bucky` |
 
 ## **Hardware emulated**
 
@@ -111,16 +99,16 @@ included. Supply only ROMs you are legally entitled to use.
 
 ## How to install
 
-This source repository intentionally does not contain an RBF.
+The release folder contains the current MRA and latest built RBF.
 
 For manual installation:
 
 1. Obtain or build the current `Arcade-Bucky_YYYYMMDD.rbf`.
-2. Place the RBF in `/media/fat/_Arcade/` and place the Bucky `.mra` files in
+2. Place the RBF in `/media/fat/_Arcade/` and place `Bucky O'Hare.mra` in
    the same `_Arcade` folder. An equivalent organized layout, such as an RBF
    under `/media/fat/_Arcade/cores/`, is also supported when the MRA resolves it.
 3. Put legally obtained matching MAME ROM ZIPs in `/media/fat/games/mame/`.
-4. Launch the desired Bucky O'Hare revision from MiSTer's Arcade menu.
+4. Launch Bucky O'Hare from MiSTer's Arcade menu.
 
 For automatic installation, add this entry to `downloader.ini`:
 

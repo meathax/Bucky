@@ -24,7 +24,7 @@ line-ownership paths.
 
 ## Next valid action
 
-Install the corrected `bucky.mra`, relaunch the existing fresh RBF through that
+Install the corrected `Bucky O'Hare.mra`, relaunch the existing fresh RBF through that
 MRA, and exercise rapid gameplay effects.  No Quartus/RBF build is needed for
 this test.  Confirm all sounds and absence of the intermittent tone; video
 fixes remain a separate hardware gate.

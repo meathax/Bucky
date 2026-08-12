@@ -35,7 +35,7 @@ if ($private) {
 	throw "Private ROM artifact entered core tree: $($private.FullName -join ', ')"
 }
 
-& python (Join-Path $root 'cores\bucky\tools\validate_mra.py') --parent-only (Join-Path $root 'cores\bucky\releases\bucky.mra')
+& python (Join-Path $root 'cores\bucky\tools\validate_mra.py') --parent-only (Join-Path $root "cores\bucky\releases\Bucky O'Hare.mra")
 if ($LASTEXITCODE -ne 0) { throw 'MRA validation failed' }
 
 $romHash = (Get-FileHash -LiteralPath (Join-Path $root 'rom\bucky.zip') -Algorithm SHA256).Hash
