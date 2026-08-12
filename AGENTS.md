@@ -10,6 +10,22 @@ normalization, comparison, diagnosis, bounded RTL correction, regression and Qua
 Do not hand routine commands back to the user. Ask for user action only when physical hardware,
 a missing ROM owned by the user, credentials, or inaccessible evidence makes it unavoidable.
 
+## Explicit RBF authorization gate
+
+Never start Quartus, Qsys, `jtcore ... -mister`, `quartus_flow.ps1`, or any
+operation that can compile, assemble, stage, copy, deploy, or otherwise create
+an RBF unless the user's current message explicitly instructs Codex to build an
+RBF. Authorization from an earlier message, an initial task title, a resumed
+turn, a standing goal, or an inferred desire to hardware-test RTL is stale and
+must not be reused. Requests to diagnose, fix, continue, verify, test, or
+improve RTL authorize only non-Quartus development checks. Before every RBF
+build, state that the current user message supplies authorization; if it does
+not, stop after RTL/simulation verification and report that no RBF was built.
+Any user instruction to stop an RBF build revokes authorization immediately:
+terminate only the build owned by this task, verify that no owned Quartus/Qsys
+process remains, and do not restart without a new explicit user message saying
+to build the RBF.
+
 ## Hardware truth and evidence
 
 Rank evidence as:

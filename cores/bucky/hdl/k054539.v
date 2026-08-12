@@ -553,7 +553,7 @@ always @(posedge clk) begin
                     if (w_loopen) begin
                         w_pos <= {1'b0, w_loop}; sample_rom_addr <= w_loop; sample_rom_cs <= 1'b1; state <= S_R8;
                     end else begin
-                        if (reg_updates) active[ch] <= 1'b0;
+                        if (reg_updates && !keyon_retrigger[ch]) active[ch] <= 1'b0;
                         w_val <= 16'sd0; state <= S_MIX;
                     end
                 end else begin
@@ -573,7 +573,7 @@ always @(posedge clk) begin
                     if (w_loopen) begin
                         w_pos <= {1'b0, w_loop}; sample_rom_addr <= w_loop; sample_rom_cs <= 1'b1; state <= S_R16L;
                     end else begin
-                        if (reg_updates) active[ch] <= 1'b0;
+                        if (reg_updates && !keyon_retrigger[ch]) active[ch] <= 1'b0;
                         w_val <= 16'sd0; state <= S_MIX;
                     end
                 end else begin
@@ -587,7 +587,7 @@ always @(posedge clk) begin
                     if (w_loopen) begin
                         w_pos <= {w_loop, 1'b0}; sample_rom_addr <= w_loop; sample_rom_cs <= 1'b1; state <= S_RD;
                     end else begin
-                        if (reg_updates) active[ch] <= 1'b0;
+                        if (reg_updates && !keyon_retrigger[ch]) active[ch] <= 1'b0;
                         w_val <= 16'sd0; state <= S_MIX;
                     end
                 end else begin

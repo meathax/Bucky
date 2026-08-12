@@ -299,6 +299,15 @@ module tb_bucky_parent(
     integer button1_period, button1_end, button3_period, button3_end;
     integer right_start, right_end, input_pulse;
     integer coin_pulse, start_pulse, button1_pulse, button3_pulse;
+    // Exact verilator-record replay for the combined P1/P3 MAME port.  Each
+    // 48-bit entry is {machine_frame_complete frame, P1_P3 value}; applying it
+    // after this bench increments `frames` drives the delta before the next
+    // equivalent frame boundary.  The table and cursor are model-resident so
+    // VerilatedSave captures the complete replay state.
+    reg [47:0] p1p3_replay [0:255];
+    reg [8*256-1:0] p1p3_replay_hex;
+    integer p1p3_replay_count, p1p3_replay_cursor;
+    reg p1p3_replay_enabled;
     reg attract_seen;
     reg require_attract;
     reg start_accepted;
@@ -325,6 +334,16 @@ module tb_bucky_parent(
         start_pulse = -1;
         button1_pulse = -1;
         button3_pulse = -1;
+        p1p3_replay_hex = 0;
+        p1p3_replay_count = 0;
+        p1p3_replay_cursor = 0;
+        p1p3_replay_enabled = $value$plusargs("P1P3_REPLAY_HEX=%s", p1p3_replay_hex);
+        if (p1p3_replay_enabled) begin
+            if (!$value$plusargs("P1P3_REPLAY_COUNT=%d", p1p3_replay_count) ||
+                p1p3_replay_count < 1 || p1p3_replay_count > 256)
+                $fatal(1, "P1P3 replay requires P1P3_REPLAY_COUNT=1..256");
+            $readmemh(p1p3_replay_hex, p1p3_replay, 0, p1p3_replay_count-1);
+        end
         attract_seen = 0;
         require_attract = $test$plusargs("REQUIRE_ATTRACT");
         start_accepted = 0;
@@ -1267,6 +1286,23 @@ module tb_bucky_parent(
                     joystick1[1] = 1'b0;
                 else
                     joystick1[1] = 1'b1;
+                if (p1p3_replay_enabled) begin
+                    if (p1p3_replay_cursor < p1p3_replay_count &&
+                        p1p3_replay[p1p3_replay_cursor][47:16] < frames)
+                        $fatal(1, "missed P1_P3 replay event cursor=%0d event_frame=%0d frame=%0d",
+                               p1p3_replay_cursor,
+                               p1p3_replay[p1p3_replay_cursor][47:16], frames);
+                    while (p1p3_replay_cursor < p1p3_replay_count &&
+                           p1p3_replay[p1p3_replay_cursor][47:16] == frames) begin
+                        {cab_1p[2], joystick3} = p1p3_replay[p1p3_replay_cursor][15:8];
+                        {cab_1p[0], joystick1} = p1p3_replay[p1p3_replay_cursor][7:0];
+                        if ($test$plusargs("INPUT_DIAG"))
+                            $display("[INPUT_REPLAY] frame=%0d P1_P3=%04x cursor=%0d",
+                                     frames, p1p3_replay[p1p3_replay_cursor][15:0],
+                                     p1p3_replay_cursor);
+                        p1p3_replay_cursor = p1p3_replay_cursor + 1;
+                    end
+                end
                 if ($test$plusargs("INPUT_DIAG") &&
                     ((coin_frame >= 0 && frames == coin_frame) ||
                      (coin2_frame >= 0 && frames == coin2_frame) ||

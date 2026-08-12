@@ -129,6 +129,12 @@ defs=(
 # visual replay is needed; that binary is never evidence of exactness.
 if [[ "$sim_fast" == 1 ]]; then
     defs+=( --x-assign fast --x-initial fast --noassert -DBUCKY_FAST_SIM )
+else
+    # Pin correctness semantics instead of relying on version-dependent
+    # defaults.  The project-owned event probes provide the cold replay
+    # evidence; optional waveform support is built only by a dedicated narrow
+    # trace variant whose host dependencies have been verified.
+    defs+=( --assert --x-assign unique --x-initial unique --MMD -Wall )
 fi
 # Match the production core by default: without JTFRAME_J68, jtframe_m68k
 # instantiates fx68k.  J68 is useful for targeted diagnostics but must not be

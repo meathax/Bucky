@@ -63,6 +63,8 @@ param(
 	[int] $ObjDumpFrame = 0,
 	[string] $LogFile = '',
 	[string] $MilestoneFile = '',
+	[string] $ReplayP1P3Hex = '',
+	[int] $ReplayP1P3Count = 0,
 	[string] $SaveState = '',
 	[int] $AutoSaveFrame = 1,
 	[string] $RestoreState = '',
@@ -252,6 +254,17 @@ if (-not [string]::IsNullOrWhiteSpace($ObjDumpFile)) {
 }
 if (-not [string]::IsNullOrWhiteSpace($MilestoneFile)) {
 	$plus += "+MILESTONE_FILE=$([IO.Path]::GetFullPath($MilestoneFile))"
+}
+if (-not [string]::IsNullOrWhiteSpace($ReplayP1P3Hex)) {
+	$replayP1P3 = [IO.Path]::GetFullPath($ReplayP1P3Hex)
+	if (-not (Test-Path -LiteralPath $replayP1P3 -PathType Leaf)) {
+		throw "Missing P1/P3 replay table: $replayP1P3"
+	}
+	if ($ReplayP1P3Count -lt 1 -or $ReplayP1P3Count -gt 256) {
+		throw 'ReplayP1P3Count must be between 1 and 256'
+	}
+	$plus += "+P1P3_REPLAY_HEX=$replayP1P3"
+	$plus += "+P1P3_REPLAY_COUNT=$ReplayP1P3Count"
 }
 if (-not [string]::IsNullOrWhiteSpace($SaveState)) {
 	$plus += "+SAVE_STATE=$([IO.Path]::GetFullPath($SaveState))"
