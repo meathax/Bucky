@@ -55,6 +55,9 @@ checkpoints/
 .codex-mister-build/
 .tmp-verilator/
 .mister/
+.agents/
+.codex/
+AGENTS.md
 /cfg/
 snap/
 cores/**/mister/
