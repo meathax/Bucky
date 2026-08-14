@@ -413,6 +413,24 @@ wire [23:0] back_sel   = colnb_a ? bg_bgr : back_bgr;
 // enter this final pipelined color-math stage.
 wire [23:0] k338_front = use_bg ? bg_bgr : bgr;
 wire [ 1:0] k338_mix   = do_blend ? mix_front_a : 2'd0;
+// El FIX se SUPERPONE por encima del K053251 (mux pal_amux): no participa en la
+// mezcla NI recibe la SOMBRA que el K053251 calcula para la capa que queda debajo.
+// SHD[1:0] pertenece al ganador del K053251; un pixel de FIX opaco tapa a ese
+// ganador, asi que la sombra deja de aplicarse igual que ya ocurre con MIX
+// (do_blend lleva `& ~fixop_a` desde la sesion 24).
+//
+// MEDIDO contra la placa y MAME (cutscene de intro, cajas de dialogo):
+//   texto FIX  pal 0x701 = f0ffff -> RTL daba b1bcba (caja 1) / 9e9e9e (caja 2)
+//   perfil FIX pal 0x702 = 585858 -> RTL daba 151717 (caja 1) / 000000 (caja 2)
+// Resolviendo las dos plumas a la vez: ganancia = 1.026 (=1, el brillo NO
+// interviene) y delta = -67 / -97 -> es EXACTAMENTE el sumador de sombra del
+// K054338. El interior de la caja SI es una region de sombra autentica
+// (cielo 26,9f,ff menos el mismo delta = lo que se ve en la placa: caja 1 azul,
+// caja 2 casi negra), por eso solo hay que excluir al FIX, no desactivar la
+// sombra. En la placa el texto sale BLANCO brillante sobre esa region.
+// Sintoma tambien visible sin ninguna caja: "PRESENTED BY KONAMI" del arranque
+// salia gris en vez de blanco.
+wire [ 1:0] k338_shd   = fixop_a ? 2'd0 : shd_out;
 wire [23:0] k338_color;
 wire [ 7:0] k338_brightness;
 bucky_k054338 u_k054338(
@@ -428,7 +446,7 @@ bucky_k054338 u_k054338(
     .front_bgr       ( k338_front       ),
     .back_bgr        ( back_sel         ),
     .mix_code        ( k338_mix         ),
-    .shadow_code     ( shd_out          ),
+    .shadow_code     ( k338_shd         ),
     .brightness_code ( {1'b0,brit_out}  ),
     .color_bgr       ( k338_color       ),
     .brightness      ( k338_brightness  )
