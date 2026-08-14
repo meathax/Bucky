@@ -8,8 +8,10 @@
  * bus cycle completes.
  *
  * The JTFRAME 32-bit ROM slot presents an even 16-bit word on scr_data[15:0]
- * and the odd word on scr_data[31:16].  The readback window is bank zero, so
- * CPU word offset [12:1] maps to slot word address offset>>1.
+ * and the odd word on scr_data[31:16].  The readback window is a sliding
+ * 8KiB slice of the 2MiB tile ROM, selected by rom_bank (K056832 mmr[0x1a],
+ * MAME k056832.cpp:685-694); CPU word offset [12:1] maps to the word address
+ * within that slice.
  */
 module bucky_k056832_romrd(
     input             rst,
@@ -18,6 +20,7 @@ module bucky_k056832_romrd(
     // CPU-side K056832 ROM passthrough request.
     input             rd_cs,
     input      [12:1] rd_addr,
+    input      [ 7:0] rd_bank,
     output            rd_ok,
     output     [15:0] rd_data,
 
@@ -41,18 +44,21 @@ localparam [2:0] S_DONE  = 3'd4;
 
 reg [2:0]  state;
 reg [12:1] rd_addr_l;
+reg [ 7:0] rd_bank_l;
 reg [15:0] rd_data_l;
 
 always @(posedge clk, posedge rst) begin
     if (rst) begin
         state     <= S_IDLE;
         rd_addr_l<= 0;
+        rd_bank_l<= 0;
         rd_data_l<= 0;
     end else begin
         case (state)
             S_IDLE: begin
                 if (rd_cs) begin
                     rd_addr_l <= rd_addr;
+                    rd_bank_l <= rd_bank;
                     state     <= S_BREAK;
                 end
             end
@@ -86,7 +92,7 @@ end
 assign scr_cs   = rd_cs ? ((state == S_REQ) || (state == S_WAIT)) :
                   ((state == S_IDLE) ? tile_cs : 1'b0);
 assign scr_addr = (rd_cs && ((state == S_REQ) || (state == S_WAIT))) ?
-                  {8'd0,rd_addr_l[12:2]} : tile_addr;
+                  {rd_bank_l,rd_addr_l[12:2]} : tile_addr;
 assign rd_ok    = rd_cs && (state == S_DONE);
 assign rd_data  = rd_data_l;
 assign tile_ok  = !rd_cs && (state == S_IDLE) && scr_ok;

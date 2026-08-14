@@ -14,6 +14,7 @@ hardware truth where its driver is marked imperfect.
 | Template_MiSTer | `b4726d2dd8cfad67db3f8ba060aa4e8c13047662` | Upstream notices retained | Official standalone MiSTer packaging reference |
 | Existing Moo Mesa core | [`jlrh/konami-fpga`](https://github.com/jlrh/konami-fpga), pinned [`cores/moomesa`](https://github.com/jlrh/konami-fpga/tree/5e890383/cores/moomesa), commit `5e890383` | GPLv3 | GX151/GX173-family CPU, video, sound, SDRAM and I/O donor; the required common RTL was adapted into the independent Bucky source tree with GX173-specific map and color/timing changes |
 | Bucky ROM archive | SHA-256 `D9EAB6109959A7A77E83871EA775954D10F0A607FA320B81D75713DC12F38987` | Private; never committed or redistributed | Local validation of the six MAME sets |
+| [rmonic79/MiSTer-CRT-Adjust](https://github.com/rmonic79/MiSTer-CRT-Adjust) | `rtl/crt_adjust.sv`, commit at time of import (2026-08-14, `master`) | GNU GPL v3 or later; header/license notice retained verbatim | Copied unmodified into `cores/bucky/hdl/crt_adjust.sv`; core-side CRT geometry adjust (H-Position, V-Shift), wired from `jtbucky_game.v`. H-Size left unwired -- see comment in `jtbucky_game.v` |
 
 The complete pinned evidence is kept under ignored `.workbench/upstream/`. No SiliconRE HDL is linked
 into the GPLv3 production core unless its licensing is confirmed compatible. K054000 production RTL is

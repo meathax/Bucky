@@ -5,6 +5,13 @@ author=["Bucky MiSTer contributors"]
 sourcefile=["moo.cpp"]
 skip={bootlegs=true}
 mustbe.machines=["bucky"]
+# mustbe.machines above restricts MRA generation to the "bucky" (EAB) set only, so the five
+# rename entries below other than "bucky" itself, and the buckyjaa/buckyuab nvram Defaults
+# further down, are currently DEAD - never emitted. All six setnames are valid variants of this
+# driver's ROM_START(bucky) with identical region sizes, so they generate cleanly if
+# mustbe.machines is ever widened to ["bucky","buckyea","buckyjaa","buckyuab","buckyaab","buckyaa"].
+# Left restricted to EAB deliberately (only that variant is verified/shipped); do not delete these
+# entries as dead code, they are the ready-made path to add the other regions later.
 rename=[
     {setname="bucky",    name="Bucky O'Hare (ver EAB)"},
     {setname="buckyea",  name="Bucky O'Hare (ver EA)"},

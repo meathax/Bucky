@@ -123,6 +123,7 @@ wire [ 4:0] lyro_pri;
 wire [ 1:0] shadow;
 wire [15:0] tile_din;
 wire [18:0] rom_addr;
+wire [ 7:0] scr_rom_bank;
 wire [ 1:0] rom_lyr;
 wire        rom_cs, cpu_weg;
 wire        tile_rom_ok;
@@ -144,6 +145,7 @@ bucky_k056832_romrd u_romrd(
     .clk       ( clk          ),
     .rd_cs     ( romrd_cs    ),
     .rd_addr   ( cpu_addr[12:1]),
+    .rd_bank   ( scr_rom_bank ),
     .rd_ok     ( romrd_ok    ),
     .rd_data   ( romrd_dout  ),
     .tile_addr ( rom_addr    ),
@@ -212,6 +214,7 @@ cowboys_k056832 u_scroll(
     .lyra_mix   ( lyra_mix  ),
     .lyrb_mix   ( lyrb_mix  ),
     .lyrc_mix   ( lyrc_mix  ),
+    .rom_bank   ( scr_rom_bank ),
 
     .gfx_en     ( gfx_en    ),
     .debug_bus  ( 8'd0      )
@@ -330,7 +333,18 @@ localparam [9:0] OVOFFSET=10'h117;
 // Offset H del obj: el K053246 espera hdump 0x20-based (Konami CRTC); nuestro hdump es 0-based. Calibracion
 // de origen CRT (constante). OBJ_HOFF=149 + OVOFFSET=0x117 => sprites PIXEL-EXACTOS vs golden --mode full en
 // escenas 600/900/1800 (0 diffs de sprite; solo residuo col-0/pipeline conocido). Validado run_vfull sesion 4.
-localparam [8:0] OBJ_HOFF=9'd149;
+// ⚠ El 149 de arriba se calibro contra golden de MOO MESA (escenas 600/900/1800 del donante). MAME
+// configura el K053246 DISTINTO por juego: moo.cpp:789 set_config(...,-48+1,23) para moo y :868
+// set_config(...,-48,23) para BUCKY -> los sprites de Bucky van 1 px a la IZQUIERDA de los de Moo.
+// El offset equivalente de TILES si se re-derivo (cowboys_k056832.v:59 {-2,2,4,6} vs donante
+// {-1,3,5,7}), asi que los sprites quedaban 1 px descolgados respecto a los tiles.
+// Signo: k053246_scan.sv:226 xadj<=xoffset-HOFFSET y :414 x<=x-xadj, y bucky_video.v alimenta
+// .hdump(hdump+OBJ_HOFF) -> subir OBJ_HOFF mueve los sprites a la IZQUIERDA. 149 -> 150.
+// El retoque +1 de HB_START/HB_END/HS_START (cowboys_k056832.v:82-84) NO es un offset de juego: es
+// compensacion de UNA etapa extra de pipeline (bucky_k054338.v:150-156 registra color_bgr en pxl_cen,
+// el donante mezclaba de forma puramente combinacional), afecta por igual a todas las capas y no se
+// toca. PENDIENTE DE VERIFICAR contra posicion real de sprite en MAME/PCB.
+localparam [8:0] OBJ_HOFF=9'd150;
 
 // ⭐ EDGE_TRIGGER (sesion 12) — el DMA de sprites de moomesa es un ARMADO DE UN SOLO DISPARO.
 // Desensamblado del juego (coste 0 sims), protocolo REAL:

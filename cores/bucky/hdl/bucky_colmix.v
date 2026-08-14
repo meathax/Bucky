@@ -193,6 +193,16 @@ always @(posedge clk, posedge rst) begin : k38_rst
         if(!cpu_dsn[0]) k38[cpu_addr[4:1]][ 7:0] <= cpu_dout[ 7:0];
     end
 end
+`ifdef SIMULATION
+// Sonda SOLO-$display (no anade estado, no afecta a la sintesis ni a los checkpoints): que escribe el
+// juego en el registro de BRILLO del K054338 (reg 11 / reg 12). El frame 600 del sim sale ENTERO a
+// dac(golden,0x80) -> 16 de 18 clases de color coinciden exactamente con la golden de MAME escalada a
+// 0x80, o sea que estamos aplicando ganancia 0x80 a toda la pantalla. Falta saber si el juego pide
+// 0x80 de verdad o si es artefacto nuestro. Ver GAPS: brillo del K054338.
+always @(posedge clk) if( alpha_cs & cpu_we & (cpu_addr[4:1]==4'd11 || cpu_addr[4:1]==4'd12) )
+    $display("[K38BRI] reg%0d <= %04x dsn=%b", cpu_addr[4:1], cpu_dout, cpu_dsn);
+`endif
+
 // backdrop fill: bytes CRUDOS (sin paleta) R=k38[0][7:0], G=k38[1][15:8], B=k38[1][7:0].
 // la salida es {blue,green,red} -> ordenar {B,G,R}. Validado contra el golden (bgrgb).
 wire [23:0] bg_bgr   = { k38[1][7:0], k38[1][15:8], k38[0][7:0] };
@@ -225,7 +235,13 @@ wire [23:0] bg_bgr   = { k38[1][7:0], k38[1][15:8], k38[0][7:0] };
 // 2 bits descartados) + regresion golden en 15 escenas: 13 IDENTICAS a MAME, solo 1200/1350 cambian.
 // ⚠️ En 1200 y 1350 golden y RTL DIVERGEN DE MAME a proposito (~6400 px): ahi el oraculo es la PLACA,
 //    no MAME. NO lo "arregles" volviendo a casar con MAME. Ver HANDOFF "SESION 25" y GAPS C-17.
-wire        layers_enable = k38[15][0];
+// K338_CTL_MIXPRI = bit1 (k054338.h:19) es el "enable" de la mezcla alpha; moo.cpp:379 lee ese bit.
+// bit0 = K338_CTL_KILL es el enable de VIDEO y ya se consume aparte en bucky_k054338.v:132 (y la
+// salida se compuerta ademas con lvbl&lhbl), asi que usarlo aqui era redundante y dejaba la mezcla
+// SIEMPRE activa mientras hubiera video. El donante moomesa usaba [1] (cowboys_colmix.v:181) y el
+// comentario de arriba de este mismo fichero ya dice "MIXPRI=k38[15][1] (enable)": el codigo se
+// contradecia con su propio comentario.
+wire        alpha_en = k38[15][1];
 // flag de mezcla del pixel de la capa FRONTAL (la unica que el K054338 mezcla en moo)
 wire [ 1:0] mix_front = ({2{front_a}} & lyra_mix) | ({2{front_b}} & lyrb_mix) | ({2{front_c}} & lyrc_mix);
 
@@ -396,7 +412,7 @@ end
 // Validado en 1200: L=1 -> 0.0000% (L=2 dejaba residuo de 1px en el borde diagonal de la capa a).
 // `mix_front`: SOLO se mezclan los tiles marcados con attr[2]=1. Sin este termino, con alpha_lv=0 la
 // capa frontal entera desaparecia (= el bug del crater de MAME). Ver el bloque ⭐⭐ del K054338.
-wire       blend_en_now = layers_enable & (mix_front!=0) & ~k251_coln & (pal_addr != cout_b);
+wire       blend_en_now = alpha_en & (mix_front!=0) & ~k251_coln & (pal_addr != cout_b);
 wire       blend_en_a, colnb_a;
 wire [1:0] mix_front_a;
 jtframe_sh #(.W(2),.L(1)) u_mixdly(.clk(clk),.clk_en(pxl_cen),.din(mix_front),.drop(mix_front_a));
@@ -430,7 +446,20 @@ wire [ 1:0] k338_mix   = do_blend ? mix_front_a : 2'd0;
 // sombra. En la placa el texto sale BLANCO brillante sobre esa region.
 // Sintoma tambien visible sin ninguna caja: "PRESENTED BY KONAMI" del arranque
 // salia gris en vez de blanco.
-wire [ 1:0] k338_shd   = fixop_a ? 2'd0 : shd_out;
+//
+// FASE: el K053251 registra cout/col_n/shd_out/brit en el MISMO flanco (fase P,
+// k053251.v:151-154), mientras que el color llega al K054338 un pxl_cen despues
+// (P+1): pal_addr -> RAM -> {b8,g8,r8} (cada clk) -> bgr (con pxl_cen). Por eso
+// TODOS los demas controles del K054338 se retrasan L=1 (u_mixdly, u_blenddly,
+// u_colnbdly). `shd_out` entraba CRUDO, o sea 1 px adelantado respecto al color
+// al que se le sumaba: la sombra salia corrida 1 px a la derecha. Se retrasa
+// aqui igual que sus hermanos y se compuerta ya alineada con `fixop_a` (P+1).
+// `brit_out` tiene el mismo desfase de 1 px; se deja como estaba a proposito,
+// porque no hay ninguna evidencia observada que lo respalde todavia y conviene
+// poder bisecar los dos cambios por separado.
+wire [ 1:0] shd_out_a;
+jtframe_sh #(.W(2),.L(1)) u_shddly(.clk(clk),.clk_en(pxl_cen),.din(shd_out),.drop(shd_out_a));
+wire [ 1:0] k338_shd   = fixop_a ? 2'd0 : shd_out_a;
 wire [23:0] k338_color;
 wire [ 7:0] k338_brightness;
 bucky_k054338 u_k054338(

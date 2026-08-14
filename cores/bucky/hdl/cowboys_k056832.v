@@ -46,6 +46,10 @@ module cowboys_k056832(
     output     [ 7:0] lyrf_pxl, lyra_pxl, lyrb_pxl, lyrc_pxl,
     // flag de MEZCLA por pixel (attr[2] del tile) de cada capa de scroll — ver seccion line buffers
     output     [ 1:0] lyra_mix, lyrb_mix, lyrc_mix,
+    // Banco de la ventana de lectura CPU del ROM de tiles (0x190000-0x191fff, 8KiB), para
+    // bucky_k056832_romrd. k056832.cpp:685-694 (MAME): bank = regs[0x1a] | (regs[0x1b]<<16);
+    // 2MiB/8KiB = 256 bancos -> 8 bits bastan y regs[0x1b] no se usa en este board.
+    output     [ 7:0] rom_bank,
 
     input      [ 3:0] gfx_en,
     input      [ 7:0] debug_bus
@@ -111,6 +115,7 @@ always @(posedge clk, posedge rst) begin : mmr_rst
     end
 end
 wire [1:0] fbits = mmr[5'h03][7:6];   // =3 en moomesa
+assign rom_bank = mmr[5'h1a][7:0];
 function signed [9:0] dxL(input [1:0] l);
     case(l) 2'd0: dxL={mmr[5'h14][9],mmr[5'h14][8:0]}; 2'd1: dxL={mmr[5'h15][9],mmr[5'h15][8:0]};
             2'd2: dxL={mmr[5'h16][9],mmr[5'h16][8:0]}; default: dxL={mmr[5'h17][9],mmr[5'h17][8:0]}; endcase
@@ -310,7 +315,16 @@ wire [9:0] lb_wa = {fbank, outpx};
 // Por eso los registros del K054338/K053251 son BIT-IDENTICOS entre ambas escenas: la informacion
 // nunca estuvo en los registros, esta POR TILE. MAME no podia hallarlo mirando registros.
 // Coste: line buffers 8->9 bits. El M10K de Cyclone V tiene modo x9 nativo -> mismo nº de BRAMs.
-wire [9:0] lb_wd = {attr_c[3:2], colnib_c, pen};
+// ⚠ attr[3] NO se usa como bit alto del codigo de mezcla. Contabilidad de bits probada contra MAME
+// (k054156_k054157_k056832.cpp:599,617,626-627): con fbits=3 (mmr[3][7:6], este board) la entrada de
+// k056832_shiftmasks es {0,0x00,2,0x3f} -> flip=attr[1:0], color=attr[7:2]; y moo.cpp:290 se queda con
+// (color>>2 & 0x0f) = attr[7:4]. Asi que attr[3] y attr[2] los DESCARTA MAME: colnib_c NO se corrompe.
+// Pero el codigo de mezcla de 2 bits SI tiene efecto: k054338.cpp:162-171 selecciona
+// code 1 -> regs[13], code 2 -> regs[14] alto, code 3 -> regs[14] bajo, y moo.cpp:381 solo usa
+// set_alpha_level(1). regs[14] NUNCA lo lee MAME en este board -> ningun golden de los citados arriba
+// lo valida. Con attr[3]=1 un tile saltaba de mix_code=1 a 2/3 y sacaba el nivel de un registro sin
+// evidencia -> caja de dialogo SEMITRANSPARENTE en vez de opaca. Se limita al unico bit medido.
+wire [9:0] lb_wd = {1'b0, attr_c[2], colnib_c, pen};
 wire       lb_we = (cs_st==C_WRITE) && outpx_ok;
 // Lectura: banco de display + columna. dpx=hdump cambia solo en pxl_cen -> dout registrado estable.
 wire [8:0] dpx = hdump;            // HCNT_START=0 -> activo empieza en 0

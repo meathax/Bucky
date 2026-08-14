@@ -49,6 +49,66 @@ wire [ 7:0] snd2main,
             st_main, st_video, st_snd;
 wire [ 1:0] oram_we;
 
+// MiSTer-CRT-Adjust (rmonic79/MiSTer-CRT-Adjust, core-side variant, crt_adjust.sv)
+// splice point: native video from u_video, pre-framework. See crt_adjust.sv header
+// and SOURCES.md for provenance. H-Size is NOT wired here: it needs a variable
+// read-rate fed all the way to jtframe_mister's arcade_video ce_pix, which jtframe
+// has no per-core hook for without editing the vendored (gitignored, refetched)
+// jtframe tree -- out of scope by policy. hoffset/voffset only shift sync timing,
+// so pxl2_cen stays tied 1:1 to the native pxl_cen: no downstream rate mismatch.
+wire [`JTFRAME_COLORW-1:0] game_red, game_green, game_blue;
+wire        game_lhbl, game_lvbl, game_hs, game_vs;
+wire [`JTFRAME_COLORW-1:0] crt_r, crt_g, crt_b;
+wire        crt_hs, crt_vs, crt_hb, crt_vb, crt_hs_ref;
+
+reg  crt_on;
+reg  signed [4:0] crt_hpos, crt_vshift;
+always @(posedge clk) if(pxl_cen) begin
+    crt_on     <= status[11];
+    crt_hpos   <= $signed(status[22:18]);
+    crt_vshift <= $signed(status[27:23]);
+end
+
+crt_adjust #(
+    .VTOTAL   ( 264               ), // cowboys_k056832.v u_vtimer: VCNT_END=0x1FF -> 264 lines
+    .HTOTAL   ( 512               ), // cowboys_k056832.v u_vtimer: HCNT_END=0x1FF -> 512 px/line
+    .HPOS_MODE( 0                 )  // 0 = HPOS_SYNCSHIFT (literal: avoids relying on file compile
+                                     // order for crt_adjust.sv's `define). Active window is
+                                     // left-anchored (4..387 of 512): HPOS_CONTENTSHIFT (1) would run
+                                     // the short left margin out of the buffer window.
+) u_crt_adjust (
+    .clk        ( clk               ),
+    .pxl_cen    ( pxl_cen           ), // write rate: native, never touched
+    .pxl2_cen   ( pxl_cen           ), // read rate tied 1:1 to write rate (H-Size disabled)
+    .active     ( crt_on            ),
+    .hsize      ( 5'sd0             ), // H-Size disabled, see note above
+    .hoffset    ( {{4{crt_hpos[4]}}, crt_hpos}     ),
+    .voffset    ( {crt_vshift[4], crt_vshift}      ),
+    .r_in       ( game_red          ),
+    .g_in       ( game_green        ),
+    .b_in       ( game_blue         ),
+    .hs_in      ( game_hs           ),
+    .vs_in      ( game_vs           ),
+    .hb_in      ( ~(game_lhbl & game_lvbl) ),
+    .vb_in      ( ~game_lvbl        ),
+    .r_out      ( crt_r             ),
+    .g_out      ( crt_g             ),
+    .b_out      ( crt_b             ),
+    .hs_out     ( crt_hs            ),
+    .vs_out     ( crt_vs            ),
+    .hb_out     ( crt_hb            ),
+    .vb_out     ( crt_vb            ),
+    .hs_ref_out ( crt_hs_ref        )
+);
+
+assign red   = crt_r;
+assign green = crt_g;
+assign blue  = crt_b;
+assign LHBL  = ~crt_hb;
+assign LVBL  = ~crt_vb;
+assign HS    = crt_hs;
+assign VS    = crt_vs;
+
 // Release builds expose no diagnostic overlay or runtime tuning controls.
 assign debug_view = 8'd0;
 assign ram_we     = cpu_we & ram_cs;
@@ -202,10 +262,10 @@ bucky_video u_video (
     .tile_irqn      ( tile_irqn     ),
     .tile_nmin      (               ),
 
-    .lhbl           ( LHBL          ),
-    .lvbl           ( LVBL          ),
-    .hs             ( HS            ),
-    .vs             ( VS            ),
+    .lhbl           ( game_lhbl     ),
+    .lvbl           ( game_lvbl     ),
+    .hs             ( game_hs       ),
+    .vs             ( game_vs       ),
     .hdump          (               ),   // observabilidad (harness vfull); abiertos en produccion
     .vdump          ( video_vdump  ),
     .lyro_pxl_o     (               ),
@@ -256,9 +316,9 @@ bucky_video u_video (
     .dimmod         (  1'b0         ),
     .dimpol         (  1'b0         ),
     // pixels
-    .red            ( red           ),
-    .green          ( green         ),
-    .blue           ( blue          ),
+    .red            ( game_red      ),
+    .green          ( game_green    ),
+    .blue           ( game_blue     ),
     // Debug
     .debug_bus      ( 8'd0          ),
     .ioctl_addr     ( video_dumpa   ),

@@ -32,21 +32,21 @@ sdram:
   banks:
     - buses:
         - name: ram
-          addr_width: 18      # Bucky work, extra RAM, and 0x184000 tile RAM banks = 0x180000-0x18ffff = 64KB = 32K words -> AW 16 (puerto [15:1]).
+          addr_width: 18      # Bucky work/extra RAM + 0x184000 tile RAM bank: 3 banks of 64KB = 192KB = 96K words -> AW 18 (puerto [17:1]).
           data_width: 16       # Antes 14 (16KB): el stack/vars colisionaban por aliasing. moo.cpp:575.
           offset: RAM_OFFSET
           rw: true
         - name: main
-          addr_width: 22      # region maincpu de moomesa = 0x180000 BYTES (moo.cpp:878), no 0x100000:
-          data_width: 16       # prog 0x000000-0x07ffff + HUECO + datos 0x100000-0x17ffff, y la region
+          addr_width: 22      # region maincpu de BUCKY = 0x240000 BYTES (moo.cpp:1014), no 0x180000
+          data_width: 16       # (ese es el tamaño de moomesa): prog 0x000000-0x07ffff + HUECO + datos
           cache_size: 8        # cache only requested words; the 2-line burst cache can alias an adjacent
                                # 64-bit burst word onto a live tag during fx68k back-to-back DBRA fetches.
-                               # se direcciona PLANA (verificado: en el .rom el soundcpu empieza justo
-                               # en 0x180000). Con AW 20 -> puerto [19:1] -> el BIT 20 SE PIERDE y los
-                               # datos (0x100000+) ALIASEAN sobre el programa (0x000000+): el 68k leia
-                               # codigo donde esperaba la tabla de mensajes de 0x141a38 ("N4 DEVICE
-                               # ERROR") y caminaba sobre punteros basura -> address error -> cuelgue.
-                               # AW 21 -> [20:1] = 1M words; ram empieza en RAM_OFFSET=0x100000 words -> no solapa.
+                               # 0x200000-0x23ffff, direccionada PLANA (verificado: en el .rom el soundcpu
+                               # empieza justo en 0x240000). El mismo bug que dejaba esto documentado para
+                               # moomesa (AW insuficiente -> bit alto perdido -> datos alias sobre programa
+                               # -> "N4 DEVICE ERROR" / cuelgue) aplica aqui con la region MAS GRANDE de
+                               # Bucky: AW 22 -> [21:1] = 2M words; ram empieza en RAM_OFFSET=0x140000
+                               # words (=0x280000 bytes) -> no solapa con los 0x240000 bytes de maincpu.
     - buses:
         - name: snd
           # Z80 program ROM: 16 banks x 0x4000 bytes, selected by the

@@ -2,9 +2,9 @@ CORENAME=BUCKY
 GAMETOP=jtbucky_game_sdram
 
 JTFRAME_HEADER=16
-# El 3er boton fisico (B3) es IPT_UNKNOWN en moo.cpp (solo el set hermano "bucky" lo usa). BUTTONS=3
-# se mantiene por ahora como aislamiento probado en placa de un bug de coin con BUTTONS=2 (hay un bug
-# real sin localizar aun en el framework jtframe compartido) -- ver historial del core para el detalle.
+# El 3er boton fisico (B3) es un IPT_BUTTON3 real en moo.cpp para el set "bucky" (moo.cpp:704-713);
+# es Moo Mesa quien lo deja como IPT_UNKNOWN, no al reves. BUTTONS=3 es el valor correcto de Bucky por
+# derecho propio, no un aislamiento de un bug ajeno (ese comentario venia copiado del donante moomesa).
 JTFRAME_BUTTONS=3
 JTFRAME_JOY_DURL
 # Sin esto el overlay de debug (jtframe_debug, `ifndef JTFRAME_RELEASE) queda SIEMPRE compilado.
@@ -42,6 +42,19 @@ JTFRAME_IOCTL_RD=128
 JTFRAME_ARX=4
 JTFRAME_ARY=3
 JTFRAME_OSD_NOLOGO
+# Drop the "Vertical Crop" / "Crop Offset" OSD entries (jtframe cfgstr). They only
+# ever applied on a 1080p output and are not wanted for this core. The guard in
+# target/mister/cfgstr is keyed on this macro, which no other core defines, so
+# every other jtcore renders its config string unchanged.
+JTFRAME_NOCROP
+
+# MiSTer-CRT-Adjust (rmonic79/MiSTer-CRT-Adjust), core-side variant, wired in
+# jtbucky_game.v. H-Size is intentionally not exposed here (see jtbucky_game.v
+# comment) -- only H-Position and V-Shift, both sync-timing shifts that need no
+# jtframe framework changes. status[] bits used: 11 (B, on/off), 18-22 (I-M,
+# H-Position, signed 5-bit -16..+15), 23-27 (N-R, V-Shift, signed 5-bit -16..+15).
+# Next free uppercase status bit after this core's allocation: 12 (C).
+CORE_OSD=OB,CRT Adjust,Off,On;OIM,CRT H-Position,0,+1,+2,+3,+4,+5,+6,+7,+8,+9,+10,+11,+12,+13,+14,+15,-16,-15,-14,-13,-12,-11,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1;ONR,CRT V-Shift,0,+1,+2,+3,+4,+5,+6,+7,+8,+9,+10,+11,+12,+13,+14,+15,-16,-15,-14,-13,-12,-11,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1;
 
 [mist|sidi]
 JTFRAME_SKIP
