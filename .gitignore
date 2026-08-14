@@ -1,0 +1,104 @@
+# Bucky source repository: never commit local ROMs, generated builds or run evidence.
+
+# ROMs / firmware / material con copyright (cada uno aporta las suyas)
+*.bin
+*.rom
+*.zip
+*.hex
+*.mem
+*.pdf
+*.nv
+*.png
+*.jpg
+*.jpeg
+*.ppm
+*.wav
+*.mp3
+*.mp4
+*.svg
+*.ods
+rom/
+tmp/
+
+# Artefactos de compilación (Quartus / build)
+*.rbf
+*.sof
+*.pof
+*.qpf
+*.qsf
+output_files/
+db/
+incremental_db/
+*.rpt
+*.summary
+*.qws
+*.jdi
+*.pin
+*.smsg
+
+# Simulación
+obj_dir/
+*.vcd
+*.fst
+*.vvp
+*.exe
+*.jsonl
+!cores/bucky/cfg/gameplay-right.inputs.jsonl
+*_reads.txt
+*_writes.txt
+snd_latch_reads.txt
+-nvram_directory/
+nvram/
+artifacts/
+checkpoints/
+.workbench/
+.codex-mister-build/
+.tmp-verilator/
+.mister/
+.agents/
+.codex/
+AGENTS.md
+/cfg/
+snap/
+cores/**/mister/
+
+# SO / editores
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*~
+.vscode/
+
+releases/
+cores/**/releases/
+!cores/bucky/releases/
+!cores/bucky/releases/*.mra
+!cores/bucky/releases/*.rbf
+
+__pycache__/
+*.pyc
+run.log
+
+# Local tool caches/scratch (codegraph index, MAME MCP session state, build skill scratch)
+.codegraph/
+.mame_mcp/
+.claude-mister-build/
+
+# Excepción: las tablas Q16 generadas del k054539 (voltab/pantab/rram_zero) NO son copyright y las
+# necesita la síntesis ($readmemh) → SÍ van al repo. (Solo las de hdl/, nunca ROMs sueltas.)
+!cores/bucky/hdl/*.hex
+
+# MISTER-FPGA-AUTOPILOT-V4 START
+.mister/runs/*
+!.mister/runs/.gitkeep
+.mister/cache/*
+!.mister/cache/.gitkeep
+.mister/reports/*
+!.mister/reports/.gitkeep
+.mister/state.json
+.mister/release/
+.mister/provenance/licenses/*
+!.mister/provenance/licenses/.gitkeep
+.mister/donors/
+# MISTER-FPGA-AUTOPILOT-V4 END
