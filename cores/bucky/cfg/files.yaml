@@ -11,7 +11,6 @@ bucky:
     - bucky_k056832_romrd.v
     - bucky_main.v
     - bucky_video.v
-    - crt_adjust.sv
     - cowboys_k056832.v
     - cowboys_lyro64.v
     - cowboys_obj.v

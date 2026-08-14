@@ -251,16 +251,26 @@ always @(posedge clk, posedge rst) begin
         wlyr<=0; wtile<=0;
     end else begin
         prev_lhbl <= lhbl;
-        // ---- arranque de linea: en el flanco de bajada de LHBL, SOLO si el fetch anterior ya COMPLETO
-        //      (ambas etapas idle y handoff vacio). Mostrar lo preparado y arrancar la siguiente. ----
-        if( prev_lhbl && !lhbl && pf_st==P_IDLE && cs_st==C_IDLE && !hs_valid ) begin
+        // ---- arranque de linea: SIEMPRE en el flanco de bajada de LHBL, como el hardware real (el
+        //      vtimer nunca espera a que el fetch de la linea anterior termine). Antes este arranque
+        //      exigia pf_st==P_IDLE && cs_st==C_IDLE && !hs_valid (fetch COMPLETO) -> si una linea con
+        //      mucho texto FIX (muchos tiles unicos) no cabia en el presupuesto de ~196 tiles/linea, el
+        //      swap se SALTABA: fbank/dispbank NUNCA giraban, y el fetch seguia rellenando la MISMA
+        //      linea vieja mientras la pantalla repetia ese contenido durante VARIOS frames ("smear"/eco
+        //      horizontal medido en pantallas INSERT COIN / STAGE 1, ambas cargadas de tiles FIX). Ahora
+        //      se ABORTA el fetch en curso y se arranca la linea nueva incondicionalmente: como mucho esa
+        //      UNA linea sale con los tiles que le dio tiempo a rellenar (parcial, autocorrige en la
+        //      siguiente linea), en vez de arrastrar una linea entera vieja indefinidamente.
+        if( prev_lhbl && !lhbl ) begin
             dispbank<=fbank;            // mostrar la línea recién preparada (flip en límite de línea)
             fbank<=~fbank;
-            flyr<=0; ftile<=0;
+            flyr<=0; ftile<=0; fpx<=0;
             // El buffer preparado aquí se muestra 2 líneas después -> fline = vrender1 (2 adelante).
             // vrender1 = vrender+1 CON el wrap del vtimer (en VCNT_END va a V_START). Ver HANDOFF §5.
             fline<=vrender1;
             pf_st<=P_SETUP;
+            cs_st<=C_IDLE;
+            hs_valid<=1'b0;
         end
         // ---- PRODUCTOR: recorre (flyr,ftile), deja el tile en el handoff ----
         case(pf_st)

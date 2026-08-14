@@ -241,27 +241,15 @@ function [7:0] konami_player( input [6:0] joy, input start );
     konami_player = { start, joy[6:0] };
 endfunction
 
-// ---- DIPs de IN1: rescate del codigo ILEGAL de jugadores (00) ----------------
-// `dsw[0..3]` en jtframe (jtframe_mister_dwnld.v:106-121) NO tiene reset ni valor
-// inicial: solo se escribe cuando el HPS envia el ioctl indice 254 con los bytes
-// de <switches> del MRA. Hasta ese momento el registro vale 0x00, o sea
-// IN1[7:6]=00 -> un codigo de "Number of Players" que **no existe** en el
-// hardware: moo.cpp:684-687 solo define 0x40=3, 0x80=4 y 0xC0=2, y el propio MRA
-// lo marca como hueco (`ids="-,3,4,2"`). Ademas 00 fuerza Independent coin.
-//
-// El core donante (moomesa, cowboys_main.v:202-210) NUNCA sufria esto porque
-// llevaba el nibble ENTERO cableado a constantes con un "TODO wire dipsw"
-// pendiente:  port_in = { 8'hff, 2'b10, 1'b1, 1'b0, dip_test, ... }
-// Al cablear aqui el dipsw de verdad se gano el ajuste por OSD y se perdio esa
-// garantia de valor por defecto.
-//
-// Se sustituye SOLO el codigo ilegal 00 por el del MRA (10 = 4 jugadores). Los
-// tres codigos legales pasan intactos, asi que el OSD sigue eligiendo 2/3/4 y
-// Common/Independent y Stereo/Mono con normalidad. El arreglo de fondo seria un
-// valor de arranque para `dsw[]` en jtframe; esto es lo minimo que se puede
-// hacer sin tocar framework compartido. PENDIENTE DE VERIFICAR EN HARDWARE.
-wire [1:0] dip_players = dipsw[23:22]==2'b00 ? 2'b10 : dipsw[23:22];
-
+// ---- DIPs de IN1: OSD switches page eliminada (nunca llegaba a jugar en placa) ----------------
+// El OSD <switches> se quito de la MRA porque `dsw[0..3]` en jtframe
+// (jtframe_mister_dwnld.v:106-121) no tiene reset ni valor inicial -> hasta que el HPS
+// manda el ioctl indice 254 el registro vale 0x00, y en la practica el usuario reportaba
+// que cambiar la seleccion en el menu no tenia ningun efecto visible en placa. En vez de
+// perseguir esa ruta, se CABLEAN los tres switches directamente a los valores por defecto
+// de la propia MRA/MAME (base="af" = 1010_1111): SndOut=0 (Stereo), CoinMech=1 (Common),
+// Players=10 (4) — moo.cpp:684-687. Si en el futuro se quiere volver a exponerlos por OSD,
+// la pieza que falta es un valor de arranque para `dsw[]` en jtframe (framework compartido).
 always @(*) begin
     // MiSTer MRA switch byte is exposed as dipsw[23:16]; IN1 consumes its upper nibble.
     port_in = 16'hffff;
@@ -270,8 +258,8 @@ always @(*) begin
     // IN0 (moo.cpp:664-671): bit0-3 COIN1-4, bit4-7 SERVICE1-4 — todos ACTIVE_LOW
     if( in0_cs  ) port_in = { 8'hff, service[3:0], coin[3:0] };
     // IN1 (moo.cpp:674-687): bit0 eep_do, bit1 eep_rdy, bit2 unk(1), bit3 SERVICE (ACTIVE_LOW),
-    // bit4 SndOut(0=Stereo), bit5 CoinMech(1=Common), bit7:6 Players(10=4) — defaults de MAME.
-    if( in1_cs  ) port_in = { 8'hff, dip_players, dipsw[21:20], dip_test, 1'b1, eep_rdy, eep_do };
+    // bit4 SndOut(0=Stereo), bit5 CoinMech(1=Common), bit7:6 Players(10=4) — hardcoded, ver arriba.
+    if( in1_cs  ) port_in = { 8'hff, 2'b10, 1'b1, dip_test, 1'b1, eep_rdy, eep_do };
 end
 
 /* verilator tracing_off */

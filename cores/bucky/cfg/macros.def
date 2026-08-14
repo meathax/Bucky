@@ -42,19 +42,14 @@ JTFRAME_IOCTL_RD=128
 JTFRAME_ARX=4
 JTFRAME_ARY=3
 JTFRAME_OSD_NOLOGO
-# Drop the "Vertical Crop" / "Crop Offset" OSD entries (jtframe cfgstr). They only
-# ever applied on a 1080p output and are not wanted for this core. The guard in
-# target/mister/cfgstr is keyed on this macro, which no other core defines, so
-# every other jtcore renders its config string unchanged.
-JTFRAME_NOCROP
-
-# MiSTer-CRT-Adjust (rmonic79/MiSTer-CRT-Adjust), core-side variant, wired in
-# jtbucky_game.v. H-Size is intentionally not exposed here (see jtbucky_game.v
-# comment) -- only H-Position and V-Shift, both sync-timing shifts that need no
-# jtframe framework changes. status[] bits used: 11 (B, on/off), 18-22 (I-M,
-# H-Position, signed 5-bit -16..+15), 23-27 (N-R, V-Shift, signed 5-bit -16..+15).
-# Next free uppercase status bit after this core's allocation: 12 (C).
-CORE_OSD=OB,CRT Adjust,Off,On;OIM,CRT H-Position,0,+1,+2,+3,+4,+5,+6,+7,+8,+9,+10,+11,+12,+13,+14,+15,-16,-15,-14,-13,-12,-11,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1;ONR,CRT V-Shift,0,+1,+2,+3,+4,+5,+6,+7,+8,+9,+10,+11,+12,+13,+14,+15,-16,-15,-14,-13,-12,-11,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1;
+# JTFRAME_NOCROP REMOVED: it stripped jtframe's "Vertical Crop"/"Crop Offset" OSD
+# entries (target/mister/cfgstr), which feed video_freak's VIDEO_ARX/ARY reshape.
+# Donor moomesa and sibling asterix (same WIDTH=384/HEIGHT=224, ARX=4/ARY=3) both
+# keep this enabled. The prior justification ("only applies at 1080p") was an
+# unverified guess (tier-5), and disabling it left the OSD without the crop/AR
+# correction path -- symptom reported: sides of the picture symmetrically cut
+# ("zoomed in", card boxes at both screen edges clipped) on real HW. Restored to
+# match the working donor config. Reintroduce only with real HW evidence.
 
 [mist|sidi]
 JTFRAME_SKIP
