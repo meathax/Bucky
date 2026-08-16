@@ -1,0 +1,110 @@
+diff --git a/modules/jtframe/hdl/keyboard/jtframe_inputs.v b/modules/jtframe/hdl/keyboard/jtframe_inputs.v
+index 49fd68af..9db16eb6 100644
+--- a/modules/jtframe/hdl/keyboard/jtframe_inputs.v
++++ b/modules/jtframe/hdl/keyboard/jtframe_inputs.v
+@@ -102,11 +102,18 @@ wire [ 9:0] lock_joy1;
+ // This one passes unfiltered
+ assign  game_paddle_2 = board_paddle_2;
+ 
+-localparam START_BIT  = 6+(BUTTONS-2);
+-localparam COIN_BIT   = START_BIT+1;
+-localparam PAUSE_BIT  = COIN_BIT+1;
+-
+-reg        joy_pause=0, joy_test=0;
++localparam START_BIT   = 6+(BUTTONS-2);
++localparam COIN_BIT    = START_BIT+1;
++localparam PAUSE_BIT   = COIN_BIT+1;
++// SERVICE_BIT/TEST_BIT: two more MRA-mappable buttons beyond the fixed Start/Coin/Pause
++// trio above. Free real estate on the 16-bit board_joy* word (nothing else in this
++// framework reads bits 10/11) - no core needs its own port width change, since these
++// feed the already-existing dedicated game_service/game_test signals, not the
++// per-game joystick1..4 bus (which stays capped at BUTTONS+3 bits, untouched here).
++localparam SERVICE_BIT = PAUSE_BIT+1;
++localparam TEST_BIT    = SERVICE_BIT+1;
++
++reg        joy_pause=0, joy_test=0, joy_service=0;
+ wire [3:0] joy_start, joy_coin;
+ 
+ `ifdef POCKET   // The Pocket only uses the small buttons at the front for these functions
+@@ -118,7 +125,13 @@ wire [3:0] joy_start, joy_coin;
+     assign joy_coin  = 0;
+ `else
+     always @(posedge clk) begin
+-        joy_pause <= board_joy1[PAUSE_BIT] | board_joy2[PAUSE_BIT] | board_joy3[PAUSE_BIT] | board_joy4[PAUSE_BIT];
++        joy_pause   <= board_joy1[PAUSE_BIT]   | board_joy2[PAUSE_BIT]   | board_joy3[PAUSE_BIT]   | board_joy4[PAUSE_BIT];
++        // Momentary Service-credit and cabinet Test-mode buttons, MRA-mappable exactly
++        // like Start/Coin/Pause above (same board_joy* word, next two free bit slots).
++        // Added for Bucky O'Hare (moo.cpp/GX173 real hardware has physical SERVICE and
++        // TEST buttons); shared across all jtcores since jtframe_joysticks is common.
++        joy_service <= board_joy1[SERVICE_BIT] | board_joy2[SERVICE_BIT] | board_joy3[SERVICE_BIT] | board_joy4[SERVICE_BIT];
++        joy_test    <= board_joy1[TEST_BIT]    | board_joy2[TEST_BIT]    | board_joy3[TEST_BIT]    | board_joy4[TEST_BIT];
+     end
+     assign joy_start = { board_joy4[START_BIT], board_joy3[START_BIT], board_joy2[START_BIT], board_joy1[START_BIT]};
+     assign joy_coin  = { board_joy4[COIN_BIT] , board_joy3[COIN_BIT] , board_joy2[COIN_BIT] , board_joy1[COIN_BIT]};
+@@ -155,6 +168,7 @@ jtframe_joysticks u_joysticks(
+     .joy_test   ( joy_test      ),
+     .key_test   ( key_test      ),
+     .key_tilt   ( key_tilt      ),
++    .joy_service( joy_service   ),
+ 
+     .mouse_but_1p( mouse_but_1p ),
+     .mouse_but_2p( mouse_but_2p ),
+diff --git a/modules/jtframe/hdl/keyboard/jtframe_joysticks.v b/modules/jtframe/hdl/keyboard/jtframe_joysticks.v
+index f3525c4c..4f9684f1 100644
+--- a/modules/jtframe/hdl/keyboard/jtframe_joysticks.v
++++ b/modules/jtframe/hdl/keyboard/jtframe_joysticks.v
+@@ -30,7 +30,7 @@ module jtframe_joysticks(
+     input      [15:0] ana1, ana2,
+                       board_joy1, board_joy2, board_joy3, board_joy4,
+     input       [9:0] key_joy1, key_joy2, key_joy3, key_joy4,
+-    input             joy_test, key_test,
++    input             joy_test, key_test, joy_service,
+ 
+     input       [2:0] mouse_but_1p, mouse_but_2p,
+ 
+@@ -100,6 +100,7 @@ module jtframe_joysticks(
+         .joy_test   ( joy_test      ),
+         .key_test   ( key_test      ),
+         .key_service( key_service   ),
++        .joy_service( joy_service   ),
+ 
+         .mouse_but_1p(mouse_but_1p  ),
+         .mouse_but_2p(mouse_but_2p  ),
+@@ -190,7 +191,7 @@ module jtframe_merge_keyjoy(
+ 
+     input      [15:0] joy1,     joy2,     joy3,     joy4,
+     input       [9:0] key_joy1, key_joy2, key_joy3, key_joy4,
+-    input             joy_test, key_test, key_tilt, key_service,
++    input             joy_test, key_test, key_tilt, key_service, joy_service,
+ 
+     input       [2:0] mouse_but_1p, mouse_but_2p,
+ 
+@@ -211,9 +212,9 @@ module jtframe_merge_keyjoy(
+             game_joy3    <= 10'h3ff;
+             game_joy4    <= 10'h3ff;
+         end else begin
+-            game_test    <= ~(key_test  | joy_test);
++            game_test    <= ~(key_test    | joy_test);
+             game_tilt    <= ~ key_tilt;
+-            game_service <= ~ key_service;
++            game_service <= ~(key_service | joy_service);
+ 
+             game_coin    <= ~(joy_coin  | key_coin  | board_coin);
+             game_start   <= ~(joy_start | key_start | board_start);
+diff --git a/modules/jtframe/target/mister/cfgstr b/modules/jtframe/target/mister/cfgstr
+index 4e4af3ef..fa2e98f4 100644
+--- a/modules/jtframe/target/mister/cfgstr
++++ b/modules/jtframe/target/mister/cfgstr
+@@ -25,8 +25,12 @@ H0P1OGH,Aspect ratio,Original,Full screen,[ARC1],[ARC2];
+                            H6o03,Lightgun Sensitivity,high,highest,lowest,low;{{ end }}
+ P1oEF,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;
+ {{- /* crop options are only valid when the monitor is full HD 216*5=1080 */ -}}
++{{- /* A core may drop them entirely by defining JTFRAME_NOCROP; the macro is  */ -}}
++{{- /* absent for every other core, so this renders exactly as before there.   */ -}}
++{{ if not .JTFRAME_NOCROP }}
+ d5P1o9,Vertical Crop,Disabled,216p(5x);
+ d5P1oAD,Crop Offset,0,2,4,8,10,12,-12,-10,-8,-6,-4,-2;
++{{ end }}
+ {{ .SEPARATOR }}
+ {{ if .CORE_OSD }}
+     {{ .CORE_OSD }}

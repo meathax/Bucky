@@ -39,6 +39,8 @@ param(
 	[int] $Button1Pulse = -1,
 	[int] $Button3Pulse = -1,
 	[switch] $InputDiagnostics,
+	[switch] $DipDiagnostics,
+	[switch] $ResetPhase,
 	[switch] $GameplayDiagnostics,
 	[switch] $ObjectDiagnostics,
 	[switch] $ObjectTargetDiagnostics,
@@ -220,6 +222,11 @@ if ($Button1Pulse -ge 0) { $plus += "+BUTTON1_PULSE=$Button1Pulse" }
 if ($Button3Pulse -ge 0) { $plus += "+BUTTON3_PULSE=$Button3Pulse" }
 if ($CoinFrame -ge 0 -or $Coin2Frame -ge 0 -or $StartFrame -ge 0 -or $Button1Frame -ge 0 -or $Button3Frame -ge 0) { $plus += "+INPUT_PULSE=$InputPulse" }
 if ($InputDiagnostics) { $plus += '+INPUT_DIAG' }
+if ($DipDiagnostics) {
+	$plus += '+DIP_DIAG'
+	$plus += "+DIP_EXPECT=$('{0:x}' -f (($Dipsw -shr 20) -band 0xf))"
+}
+if ($ResetPhase) { $plus += '+RESET_PHASE' }
 if ($GameplayDiagnostics) { $plus += '+GAMEPLAY_DIAG' }
 if ($ObjectDiagnostics) { $plus += '+OBJ_DIAG' }
 if ($ObjectTargetDiagnostics) { $plus += '+OBJ_TARGET_DIAG' }

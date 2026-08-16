@@ -49,6 +49,17 @@ wire [ 7:0] snd2main,
             st_main, st_video, st_snd;
 wire [ 1:0] oram_we;
 
+// JTFRAME_SDRAM96 keeps the memory/video producer on clk while JTFRAME_CLK48
+// exposes the synchronous lower-rate game clock.  Keep one named CPU domain
+// here so every CPU-facing block follows the same reset/clock contract.
+`ifdef JTFRAME_CLK48
+wire main_clk = clk48;
+wire main_rst = rst48;
+`else
+wire main_clk = clk;
+wire main_rst = rst;
+`endif
+
 // Native video from u_video straight to the framework, no post-processing.
 // (A core-side MiSTer-CRT-Adjust splice was tried here and REMOVED: on hardware
 // it produced vertical colour stripes with the game running correctly underneath
@@ -115,8 +126,8 @@ end
 */
 /* verilator tracing_off */
 bucky_main u_main(
-    .rst            ( rst           ),
-    .clk            ( clk           ),
+    .rst            ( main_rst      ),
+    .clk            ( main_clk      ),
     .LVBL           ( LVBL          ),
 
     .cpu_we         ( cpu_we        ),
@@ -188,8 +199,8 @@ bucky_main u_main(
 );
 
 bucky_k053252 u_ccu(
-    .rst     ( rst              ),
-    .clk     ( clk              ),
+    .rst     ( main_rst        ),
+    .clk     ( main_clk        ),
     .cs      ( ccu_cs & ~ram_dsn[0] ),
     .we      ( cpu_we           ),
     .rd      ( ccu_cs & ~cpu_we & ~ram_dsn[0] ),
@@ -285,8 +296,8 @@ bucky_video u_video (
 
 /* verilator tracing_on */
 cowboys_sound u_sound(
-    .rst        ( rst           ),
-    .clk        ( clk           ),
+    .rst        ( main_rst      ),
+    .clk        ( main_clk      ),
     .cen_8      ( cen_8         ),
     .cen_4      ( cen_4         ),
     .cen_2      ( cen_2         ),

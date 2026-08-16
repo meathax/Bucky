@@ -163,10 +163,11 @@ module tb_bucky_parent(
 
     assign nvram_dout = nvram_mem[nvram_addr];
 
-    // The actual JTFRAME clock domain is 48 MHz.  These ratios preserve the
-    // generated clock-enable contracts while keeping the bench deterministic.
+    // JTFRAME_SDRAM96 makes clk/clk96 the 96 MHz SDRAM/video domain.  The
+    // separate clk48 remains the CPU/sound domain; pixel enables still derive
+    // from the SDRAM clock and therefore preserve the 8 MHz raster cadence.
 `ifndef BUCKY_EXTERNAL_CLOCK
-    always #10 clk   = ~clk;
+    always #5  clk   = ~clk;
     always #20 clk24 = ~clk24;
     always #10 clk48 = ~clk48;
     always #5  clk96 = ~clk96;
@@ -190,6 +191,74 @@ module tb_bucky_parent(
     initial pc_every_diag = $test$plusargs("PC_EVERY");
     reg cpu_detail_diag;
     initial cpu_detail_diag = $test$plusargs("CPUDETAIL");
+    // Optional proof that the JTFRAME HPS/MRA DIP byte reaches the game port.
+    // This is read-only instrumentation; it never alters the CPU bus or input
+    // values.  +DIP_EXPECT=<nibble> makes the first observed IN1 read fail if
+    // the selected switch nibble is not what the harness supplied.
+    reg dip_diag;
+    reg dip_read_d;
+    reg [3:0] dip_expected;
+    reg dip_expected_valid;
+    integer dip_diag_count;
+    initial begin
+        dip_diag = $test$plusargs("DIP_DIAG");
+        dip_read_d = 1'b0;
+        dip_expected = 4'h0;
+        dip_expected_valid = $value$plusargs("DIP_EXPECT=%h", dip_expected);
+        dip_diag_count = 0;
+    end
+
+    // Reset-domain phase regression for JTFRAME_CLK48.  The generated
+    // jtframe_rsthold registers the global hold independently in clk and
+    // clk48; a domain must never observe release while its raw reset or its
+    // locally sampled hold is still asserted.  The #1 sample is intentionally
+    // after the nonblocking reset-domain update and is simulation-only.
+    reg reset_phase_diag;
+    integer reset_release_96;
+    integer reset_release_48;
+    initial begin
+        reset_phase_diag = $test$plusargs("RESET_PHASE");
+        reset_release_96 = -1;
+        reset_release_48 = -1;
+    end
+    always @(posedge clk) begin
+        if (reset_phase_diag) begin
+            #1;
+            if (!dut.rst_h && (dut.rst || dut.u_hold.hold))
+                $fatal(1, "96MHz reset released before raw reset/hold");
+            if (reset_release_96 < 0 && !dut.rst_h) begin
+                reset_release_96 = $time;
+                $display("[RESET_PHASE] rst_h release t=%0t", $time);
+            end
+        end
+    end
+    always @(posedge clk48) begin
+        if (reset_phase_diag) begin
+            #1;
+            if (!dut.rst48_h && (dut.rst48 || dut.u_hold.hold48))
+                $fatal(1, "48MHz reset released before raw reset/hold");
+            if (reset_release_48 < 0 && !dut.rst48_h) begin
+                reset_release_48 = $time;
+                $display("[RESET_PHASE] rst48_h release t=%0t", $time);
+            end
+        end
+    end
+    always @(posedge clk48) begin
+        if (dip_diag && dut.u_game.u_main.in1_cs && dut.u_game.u_main.RnW &&
+            !dut.u_game.u_main.ASn && !dut.u_game.u_main.BUSn && !dip_read_d &&
+            dip_diag_count < 8) begin
+            $display("[DIP_DIAG] read=%0d dipsw=%08x in1=%04x nibble=%x",
+                     dip_diag_count, dipsw, dut.u_game.u_main.port_in,
+                     dut.u_game.u_main.port_in[7:4]);
+            if (dip_expected_valid && dip_diag_count == 0 &&
+                dut.u_game.u_main.port_in[7:4] !== dip_expected)
+                $fatal(1, "JTFRAME DIP mismatch expected=%x actual=%x",
+                       dip_expected, dut.u_game.u_main.port_in[7:4]);
+            dip_diag_count = dip_diag_count + 1;
+        end
+        dip_read_d <= dut.u_game.u_main.in1_cs && dut.u_game.u_main.RnW &&
+                      !dut.u_game.u_main.ASn && !dut.u_game.u_main.BUSn;
+    end
     reg stop_on_error;
     initial stop_on_error = $test$plusargs("STOP_ON_ERROR");
     reg stop_on_exception;

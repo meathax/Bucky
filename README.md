@@ -22,7 +22,7 @@ MiSTer FPGA platform.
 | Number of Players | 2, 3 or 4 |
 | Scale | Normal, V-Integer, narrower HV-Integer or wider HV-Integer |
 | Controls | Four 8-way joysticks with Shoot, Jump and Special |
-| Service / Test | MiSTer service input and the board's test-mode control |
+| Service / Test | Gamepad **L** = Service credit, **R** = Test; keyboard `9` / `F2` remain supported |
 | NVRAM | Save and restore the 128-byte serial EEPROM |
 
 The OSD uses JTFRAME's default mature-core grey background.
@@ -40,11 +40,11 @@ are listed here. Simulation success alone is not treated as PCB evidence.
 
 ## Supported games
 
-The core supports the EBA version of Bucky O'Hare:
+The core supports the EAB version of Bucky O'Hare:
 
 | Game / revision | MAME set |
 |---|---|
-| Bucky O'Hare (EBA version) | `bucky` |
+| Bucky O'Hare (EAB version) | `bucky` |
 
 ## **Hardware emulated**
 
@@ -63,7 +63,7 @@ The core supports the EBA version of Bucky O'Hare:
 | Konami K053252 / CCU timing | 8 MHz raster timing | 512×264 total timing with 384×224 active output |
 | GX173 protection blitter | Main-bus master, ROM-to-RAM transforms | Synthesizable behavioral implementation of the software-visible contract |
 | ER5911-compatible EEPROM | Serial 128-byte nonvolatile store | JTFRAME serial EEPROM path with MiSTer save/restore support |
-| Shared memory system | MiSTer SDRAM, banked/cached ROM traffic | JTFRAME memory generator with Bucky-specific main, sound, tile, sprite and PCM mappings |
+| Shared memory system | JTFRAME 96 MHz SDRAM/video service; 48 MHz CPU/sound domain | JTFRAME memory generator with Bucky-specific main, sound, tile, sprite and PCM mappings |
 
 ## Credits
 
@@ -114,7 +114,7 @@ For automatic installation, add this entry to `downloader.ini`:
 
 ```ini
 [meathax/meatcores]
-db_url = https://raw.githubusercontent.com/meathax/meatcores/db/db.json.zip
+db_url = https://raw.githubusercontent.com/meathax/meatcores/db/downloader_meathax_meatcores.zip
 ```
 
 Then run **Update All** on MiSTer. The downloader installs the published core

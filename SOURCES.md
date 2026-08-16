@@ -10,7 +10,7 @@ hardware truth where its driver is marked imperfect.
 | Furrtek SiliconRE `Konami/054000` and `Konami/054338` | `bf17e0275f06df1c78f3cdcba770f0cc6cce6397` | GPL-2.0; exact mirror kept only in `.workbench/upstream` | Silicon schematics, traces, pinouts and standalone behavioral oracle |
 | MAME source | local `D:\Arcade\AI\mame289`, MAME 0.289 | BSD-3-Clause | Address maps, ROM definitions and observable device contracts |
 | MAME executable | SHA-256 `AF6966108D9B52C22465C6D50F4E5D50CC371B50F2D27DC443935F287AAD37A3` | Local reference executable | Deterministic reference runs through MAME MCP |
-| jtcores | `1be22f172898aa2cc3db50ad372db928ed823fd2` | Per-source GPL-compatible notices retained | JTFRAME, fx68k, Z80, JT51 and MiSTer build framework |
+| jtcores | `1cc4df025554f449b954ecd11c3e3442bb22f8f3` | Per-source GPL-compatible notices retained | JTFRAME, fx68k, Z80, JT51 and MiSTer build framework |
 | Template_MiSTer | `b4726d2dd8cfad67db3f8ba060aa4e8c13047662` | Upstream notices retained | Official standalone MiSTer packaging reference |
 | Existing Moo Mesa core | [`jlrh/konami-fpga`](https://github.com/jlrh/konami-fpga), pinned [`cores/moomesa`](https://github.com/jlrh/konami-fpga/tree/5e890383/cores/moomesa), commit `5e890383` | GPLv3 | GX151/GX173-family CPU, video, sound, SDRAM and I/O donor; the required common RTL was adapted into the independent Bucky source tree with GX173-specific map and color/timing changes |
 | Bucky ROM archive | SHA-256 `D9EAB6109959A7A77E83871EA775954D10F0A607FA320B81D75713DC12F38987` | Private; never committed or redistributed | Local validation of the six MAME sets |

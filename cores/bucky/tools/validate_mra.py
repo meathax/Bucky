@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 import xml.etree.ElementTree as ET
 
-EXPECTED = {"bucky", "buckyea", "buckyjaa", "buckyuab", "buckyaab", "buckyaa"}
+EXPECTED = {"bucky"}
 EXPECTED_RBF = "Arcade-Bucky"
 EXPECTED_HEADER = [
     0x00, 0x00,  # bank 0: maincpu
@@ -88,6 +88,19 @@ def validate(path: Path) -> str:
     buttons = root.find("buttons")
     if buttons is None or buttons.attrib.get("count") != "3":
         errors.append("three action buttons are required")
+    elif name == "bucky":
+        expected_names = "Shoot,Jump,Special,Start,Coin,Pause,Service,Test"
+        expected_default = "A,B,X,Start,Select,-,L,R"
+        if buttons.attrib.get("names") != expected_names:
+            errors.append(
+                "Bucky button positions must be "
+                "Shoot,Jump,Special,Start,Coin,Pause,Service,Test"
+            )
+        if buttons.attrib.get("default") != expected_default:
+            errors.append(
+                "Bucky Service/Test defaults must map to L/R "
+                "(not the unmapped '-')"
+            )
     if main_rom is not None and "md5" in main_rom.attrib:
         errors.append("disabled ROM md5 attribute must be omitted")
     if "Core credits" in (buttons.attrib.get("names", "") if buttons is not None else ""):
@@ -111,10 +124,9 @@ def validate(path: Path) -> str:
 
 
 def main() -> int:
-    # The parent EAB set is the current bring-up/acceptance target.  Keep the
-    # historical six-set validation available for release metadata audits, but
-    # allow CI and hardware bring-up to validate only the ROM that is actually
-    # loaded.  This avoids treating clone metadata as a functional requirement.
+    # The parent EAB set is the only currently verified/distributable target.
+    # Clone metadata can be added later only after its ROM and behavior are
+    # independently validated.
     parent_only = False
     args = list(sys.argv[1:])
     if "--parent-only" in args:

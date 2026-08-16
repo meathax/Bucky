@@ -241,15 +241,10 @@ function [7:0] konami_player( input [6:0] joy, input start );
     konami_player = { start, joy[6:0] };
 endfunction
 
-// ---- DIPs de IN1: OSD switches page eliminada (nunca llegaba a jugar en placa) ----------------
-// El OSD <switches> se quito de la MRA porque `dsw[0..3]` en jtframe
-// (jtframe_mister_dwnld.v:106-121) no tiene reset ni valor inicial -> hasta que el HPS
-// manda el ioctl indice 254 el registro vale 0x00, y en la practica el usuario reportaba
-// que cambiar la seleccion en el menu no tenia ningun efecto visible en placa. En vez de
-// perseguir esa ruta, se CABLEAN los tres switches directamente a los valores por defecto
-// de la propia MRA/MAME (base="af" = 1010_1111): SndOut=0 (Stereo), CoinMech=1 (Common),
-// Players=10 (4) — moo.cpp:684-687. Si en el futuro se quiere volver a exponerlos por OSD,
-// la pieza que falta es un valor de arranque para `dsw[]` en jtframe (framework compartido).
+// ---- DIPs de IN1: standard JTFRAME HPS index 254 path ---------------------
+// JTFRAME exposes the MRA switch byte through dipsw[23:16].  The EAB default
+// is 0xA (Stereo/Common/four players), but the live value must remain visible
+// so the generated OSD and hardware configuration can change it.
 always @(*) begin
     // MiSTer MRA switch byte is exposed as dipsw[23:16]; IN1 consumes its upper nibble.
     port_in = 16'hffff;
@@ -258,8 +253,8 @@ always @(*) begin
     // IN0 (moo.cpp:664-671): bit0-3 COIN1-4, bit4-7 SERVICE1-4 — todos ACTIVE_LOW
     if( in0_cs  ) port_in = { 8'hff, service[3:0], coin[3:0] };
     // IN1 (moo.cpp:674-687): bit0 eep_do, bit1 eep_rdy, bit2 unk(1), bit3 SERVICE (ACTIVE_LOW),
-    // bit4 SndOut(0=Stereo), bit5 CoinMech(1=Common), bit7:6 Players(10=4) — hardcoded, ver arriba.
-    if( in1_cs  ) port_in = { 8'hff, 2'b10, 1'b1, dip_test, 1'b1, eep_rdy, eep_do };
+    // bit4 SndOut(0=Stereo), bit5 CoinMech(1=Common), bit7:6 Players(10=4).
+    if( in1_cs  ) port_in = { 8'hff, dipsw[23:20], dip_test, 1'b1, eep_rdy, eep_do };
 end
 
 /* verilator tracing_off */

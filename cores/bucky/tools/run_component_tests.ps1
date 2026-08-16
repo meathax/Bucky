@@ -14,8 +14,9 @@ function Invoke-Checked([string]$program, [string[]]$arguments) {
 	}
 }
 
-function Test-Component([string]$name, [string]$rtl, [string]$testbench) {
-	$top = "tb_$name"
+function Test-Component([string]$name, [string]$rtl, [string]$testbench,
+	[string]$topOverride = '', [string[]]$compileOptions = @(), [string[]]$simOptions = @()) {
+	$top = if ([string]::IsNullOrWhiteSpace($topOverride)) { "tb_$name" } else { $topOverride }
 	$mdir = Join-Path $root "obj_dir\$name"
 	$rtlFiles = @((Join-Path $root $rtl))
 	if ($name -like 'bucky_k054539*') {
@@ -26,6 +27,14 @@ function Test-Component([string]$name, [string]$rtl, [string]$testbench) {
 		$rtlFiles = @(
 			(Join-Path $root '.workbench\upstream\jtcores\modules\jtframe\hdl\ram\jtframe_dual_ram.v'),
 			(Join-Path $root 'cores\bucky\hdl\k053247_buffer.v')
+		)
+	}
+	if ($name -like 'cowboys_k056832_fetch_budget*') {
+		$rtlFiles = @(
+			(Join-Path $root '.workbench\upstream\jtcores\modules\jtframe\hdl\video\jtframe_vtimer.v'),
+			(Join-Path $root '.workbench\upstream\jtcores\modules\jtframe\hdl\ram\jtframe_dual_ram.v'),
+			(Join-Path $root '.workbench\upstream\jtcores\modules\jtframe\hdl\ram\jtframe_rpwp_ram.v'),
+			(Join-Path $root 'cores\bucky\hdl\cowboys_k056832.v')
 		)
 	}
 	if ($name -eq 'k053247_late_line_guard') {
@@ -51,6 +60,7 @@ function Test-Component([string]$name, [string]$rtl, [string]$testbench) {
 	)
 	$args += $rtlFiles
 	$args += Join-Path $root $testbench
+	$args += $compileOptions
 	Invoke-Checked $build $args
 	$exe = Join-Path $mdir "V$top.exe"
 	if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $mdir "V$top" }
@@ -61,7 +71,7 @@ function Test-Component([string]$name, [string]$rtl, [string]$testbench) {
 	$simCwd = (Get-Location).Path
 	try {
 		if ($name -like 'bucky_k054539*') { Set-Location (Join-Path $root 'cores\bucky\hdl') }
-		Invoke-Checked $run @($exe)
+		Invoke-Checked $run (@($exe) + $simOptions)
 	}
 	finally { Set-Location $simCwd }
 }
@@ -75,6 +85,15 @@ if (-not $AudioOnly) {
 	Test-Component 'bucky_k053251_shadow' 'cores\bucky\hdl\k053251.v' 'cores\bucky\hdl\sim\tb_bucky_k053251_shadow.sv'
 	Test-Component 'k053247_buffer_shadow_epoch' 'cores\bucky\hdl\k053247_buffer.v' 'cores\bucky\hdl\sim\tb_k053247_buffer_shadow_epoch.sv'
 	Test-Component 'k053247_late_line_guard' 'cores\bucky\hdl\k053247_gate.v' 'cores\bucky\hdl\sim\tb_k053247_late_line_guard.sv'
+	Test-Component 'cowboys_k056832_fetch_budget' 'cores\bucky\hdl\cowboys_k056832.v' 'cores\bucky\hdl\sim\tb_cowboys_k056832_fetch_budget.sv'
+	# The default 48 MHz run deliberately preserves the historical deficiency
+	# (latencies 8/12/20 are short).  The JTFRAME_SDRAM96 variant is a separate
+	# strict gate: every fixed latency through 20 and the sparse mixed-stall
+	# profile must complete all 196 reads without stale pixels.
+	Test-Component 'cowboys_k056832_fetch_budget_96' 'cores\bucky\hdl\cowboys_k056832.v' 'cores\bucky\hdl\sim\tb_cowboys_k056832_fetch_budget.sv' `
+		'tb_cowboys_k056832_fetch_budget' @('-GCLKDIV=12') @('+MIXED_STALL')
+	Test-Component 'jtframe_service_test' '.workbench\upstream\jtcores\modules\jtframe\hdl\keyboard\jtframe_joysticks.v' 'cores\bucky\hdl\sim\tb_jtframe_service_test.sv' `
+		'tb_jtframe_service_test'
 }
 Test-Component 'bucky_download_layout' '.workbench\upstream\jtcores\modules\jtframe\hdl\sdram\jtframe_dwnld.v' 'cores\bucky\hdl\sim\tb_bucky_download_layout.sv'
 Test-Component 'bucky_k054539' 'cores\bucky\hdl\k054539.v' 'cores\bucky\hdl\sim\tb_bucky_k054539.sv'

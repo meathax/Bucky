@@ -197,6 +197,22 @@ reg [5:0]  h_tile;
 reg [1:0]  h_lyr;
 reg [2:0]  h_sub;
 
+// ---------------- cobertura del fetch por capa (anti "linea vieja") ----------------
+// Nada borra los line buffers: solo se escriben los pixeles que el fetch alcanza a
+// producir. Como el banco alterna cada linea, un pixel NO escrito conserva el dato de
+// hace DOS lineas, y una capa a la que el fetch ni llega mantiene una linea vieja
+// ENTERA. Por eso un fetch que no cabe en la linea no sale "parcial": saca contenido
+// ajeno -> rayas horizontales largas en pantallas con muchos tiles FIX unicos (el
+// titulo de fase). Medido (tb_cowboys_k056832_fetch_budget): el productor cuesta 9+L
+// clk/tile con L = espera de la ROM de tiles, y 196 tiles solo caben en los 3072 clk de
+// linea mientras L<=6; a L=8 se quedan 181 y a L=20 solo 106. L depende del CONTENIDO
+// (aciertos de cache SDRAM), que es justo por lo que falla en pantallas de texto.
+// Aqui se registra hasta que pixel llego el fetch de cada capa y se tapa el resto al
+// mostrarlo: una linea que no cabe pierde tiles (transparente) en vez de enseñar los de
+// otra linea. No cambia nada cuando el fetch SI cabe (cobertura = 384).
+reg [8:0] fill_cov[0:3];   // pixel+1 mas alto escrito en el banco que se esta llenando
+reg [8:0] disp_cov[0:3];   // idem, latcheado para el banco que se muestra
+
 // Direcciones PRODUCTOR (combinacional desde flyr, ftile, fline estables)
 wire signed [9:0]  dx_val   = dxL(flyr);
 wire signed [9:0]  offx_val = offx(flyr);
@@ -244,11 +260,13 @@ wire       outpx_ok = (outpx_s>=0) && (outpx_s<384);
 // slot no completa y P_ROM3 espera rom_ok para SIEMPRE -> el fetch de tile se DEADLOCKEA (banco2 READ=1).
 // Sospecha: es la causa (o parte) del tilemap baja-res de placa (ses.20). Mantener cs durante P_ROM2+P_ROM3.
 assign rom_cs = (pf_st==P_ROM2) || (pf_st==P_ROM3);
-always @(posedge clk, posedge rst) begin
+always @(posedge clk, posedge rst) begin : fetch_fsm
+    integer ci;
     if(rst) begin
         pf_st<=P_IDLE; cs_st<=C_IDLE; flyr<=0; ftile<=0; fpx<=0; dispbank<=0; fbank<=1;
         rom_addr<=0; rom_lyr<=0; vid_addr<=0; prev_lhbl<=1; fline<=0; hs_valid<=0;
         wlyr<=0; wtile<=0;
+        for(ci=0;ci<4;ci=ci+1) begin fill_cov[ci]<=9'd0; disp_cov[ci]<=9'd0; end
     end else begin
         prev_lhbl <= lhbl;
         // ---- arranque de linea: SIEMPRE en el flanco de bajada de LHBL, como el hardware real (el
@@ -271,7 +289,13 @@ always @(posedge clk, posedge rst) begin
             pf_st<=P_SETUP;
             cs_st<=C_IDLE;
             hs_valid<=1'b0;
+            // el banco recien llenado pasa a mostrarse con SU cobertura; el que ahora
+            // se llena arranca sin cobertura (lo que no se escriba queda tapado).
+            for(ci=0;ci<4;ci=ci+1) begin disp_cov[ci]<=fill_cov[ci]; fill_cov[ci]<=9'd0; end
         end
+        // marca de agua de escritura por capa (outpx crece de forma monotona en la linea)
+        if( (cs_st==C_WRITE) && outpx_ok && (outpx+9'd1) > fill_cov[wlyr] )
+            fill_cov[wlyr] <= outpx+9'd1;
         // ---- PRODUCTOR: recorre (flyr,ftile), deja el tile en el handoff ----
         case(pf_st)
         P_IDLE:  ;                                               // espera arranque de linea (arriba)
@@ -350,13 +374,25 @@ jtframe_rpwp_ram #(.DW(10),.AW(10)) u_lbuf2(
 jtframe_rpwp_ram #(.DW(10),.AW(10)) u_lbuf3(
     .clk(clk), .rd_addr(rdaddr), .dout(lb3_q), .wr_addr(lb_wa), .din(lb_wd), .we(lb_we && wlyr==2'd3) );
 
-assign lyrf_pxl = gfx_en[0] ? lb0_q[7:0] : 8'd0;
-assign lyra_pxl = gfx_en[1] ? lb1_q[7:0] : 8'd0;
-assign lyrb_pxl = gfx_en[2] ? lb2_q[7:0] : 8'd0;
-assign lyrc_pxl = gfx_en[3] ? lb3_q[7:0] : 8'd0;
+// Cobertura del fetch: un pixel que esta linea NO se llego a escribir conserva el dato de
+// hace dos lineas (los bancos alternan), asi que se saca transparente en vez de mostrarlo.
+// Se registra un ciclo para casar EXACTAMENTE con la lectura registrada de los line
+// buffers (mismo retardo que lbX_q), no con el hdump combinacional.
+reg [3:0] cov_ok;
+always @(posedge clk) begin
+    cov_ok[0] <= dpx < disp_cov[0];
+    cov_ok[1] <= dpx < disp_cov[1];
+    cov_ok[2] <= dpx < disp_cov[2];
+    cov_ok[3] <= dpx < disp_cov[3];
+end
+
+assign lyrf_pxl = (gfx_en[0] & cov_ok[0]) ? lb0_q[7:0] : 8'd0;
+assign lyra_pxl = (gfx_en[1] & cov_ok[1]) ? lb1_q[7:0] : 8'd0;
+assign lyrb_pxl = (gfx_en[2] & cov_ok[2]) ? lb2_q[7:0] : 8'd0;
+assign lyrc_pxl = (gfx_en[3] & cov_ok[3]) ? lb3_q[7:0] : 8'd0;
 // flag de mezcla por pixel de cada capa de scroll (el FIX no se mezcla: va siempre opaco encima)
-assign lyra_mix = {2{gfx_en[1]}} & lb1_q[9:8];
-assign lyrb_mix = {2{gfx_en[2]}} & lb2_q[9:8];
-assign lyrc_mix = {2{gfx_en[3]}} & lb3_q[9:8];
+assign lyra_mix = {2{gfx_en[1] & cov_ok[1]}} & lb1_q[9:8];
+assign lyrb_mix = {2{gfx_en[2] & cov_ok[2]}} & lb2_q[9:8];
+assign lyrc_mix = {2{gfx_en[3] & cov_ok[3]}} & lb3_q[9:8];
 
 endmodule

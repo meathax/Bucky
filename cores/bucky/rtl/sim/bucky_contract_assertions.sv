@@ -110,3 +110,103 @@ bind k053246_dma bucky_dma_contract_assertions u_bucky_dma_contract_assertions(
 	.dma_bsy(dma_bsy),.dma_clr(dma_clr),.dma_ok(dma_ok),.dma_addr(dma_addr),
 	.dma_wr_addr(dma_wr_addr),.dma_weh(dma_weh),.dma_wel(dma_wel)
 );
+
+// JTFRAME SDRAM clients must hold a request and its address until the
+// controller acknowledges the returned word.  These assertions are bound only
+// in simulation and catch the exact failure mode that turns a late tile read
+// into a stale line-buffer pixel when the SDRAM clock/latency changes.
+module bucky_video_sdram_contract_assertions(
+	input logic clk, rst,
+	input logic [18:0] tile_addr,
+	input logic tile_cs, tile_ok,
+	input logic [20:0] sprite_addr,
+	input logic sprite_cs, sprite_ok
+);
+	logic tile_pending, sprite_pending;
+	logic [18:0] tile_addr_q;
+	logic [20:0] sprite_addr_q;
+
+	always_ff @(posedge clk or posedge rst) begin
+		if (rst) begin
+			tile_pending   <= 1'b0;
+			sprite_pending <= 1'b0;
+			tile_addr_q   <= '0;
+			sprite_addr_q <= '0;
+		end else begin
+			if (tile_pending) begin
+				if (tile_ok) tile_pending <= 1'b0;
+				else begin
+					assert (tile_cs)
+						else $fatal(1, "K056832 SDRAM request dropped before ok");
+					assert (tile_addr == tile_addr_q)
+						else $fatal(1, "K056832 SDRAM address changed before ok");
+				end
+			end
+			if (sprite_pending) begin
+				if (sprite_ok) sprite_pending <= 1'b0;
+				else begin
+					assert (sprite_cs)
+						else $fatal(1, "K053246 SDRAM request dropped before ok");
+					assert (sprite_addr == sprite_addr_q)
+						else $fatal(1, "K053246 SDRAM address changed before ok");
+				end
+			end
+			// JTFRAME's ROM slots default to OKLATCH=1.  The acknowledge may
+			// therefore be presented one cycle after the requester drops cs.
+			// Only the requester's stability while waiting is asserted here;
+			// an isolated ok pulse can be a cache-hit response.
+
+			if (tile_cs && !tile_pending) tile_addr_q <= tile_addr;
+			if (sprite_cs && !sprite_pending) sprite_addr_q <= sprite_addr;
+			if (tile_cs && !tile_ok && !tile_pending) tile_pending <= 1'b1;
+			if (tile_cs && tile_ok && !tile_pending) tile_pending <= 1'b0;
+			if (sprite_cs && !sprite_ok && !sprite_pending) sprite_pending <= 1'b1;
+			if (sprite_cs && sprite_ok && !sprite_pending) sprite_pending <= 1'b0;
+		end
+	end
+endmodule
+
+bind bucky_video bucky_video_sdram_contract_assertions u_bucky_video_sdram_contract_assertions(
+	.clk(clk), .rst(rst),
+	.tile_addr(scr_addr), .tile_cs(scr_cs), .tile_ok(scr_ok),
+	.sprite_addr(lyro_addr), .sprite_cs(lyro_cs), .sprite_ok(lyro_ok)
+);
+
+// The CPU is clocked at clk48 while the generated JTFRAME SDRAM bank runs at
+// clk.  At the synchronous boundary the 68000 request must remain owned until
+// the bank returns its (possibly OKLATCH-delayed) acknowledgement.
+module bucky_main_sdram_boundary_assertions(
+	input logic clk, rst,
+	input logic [20:1] main_addr,
+	input logic main_cs, main_ok
+);
+	logic pending;
+	logic [20:1] addr_q;
+
+	always_ff @(posedge clk or posedge rst) begin
+		if (rst) begin
+			pending <= 1'b0;
+			addr_q  <= '0;
+		end else begin
+			if (pending) begin
+				if (main_ok) pending <= 1'b0;
+				else begin
+					assert (main_cs)
+						else $fatal(1, "main SDRAM request dropped before ok");
+					assert (main_addr == addr_q)
+						else $fatal(1, "main SDRAM address changed before ok");
+				end
+			end
+			if (main_cs && !pending)
+				addr_q <= main_addr;
+			if (main_cs && !main_ok && !pending)
+				pending <= 1'b1;
+			if (main_cs && main_ok && !pending)
+				pending <= 1'b0;
+		end
+	end
+endmodule
+
+bind jtbucky_game_sdram bucky_main_sdram_boundary_assertions u_bucky_main_sdram_boundary_assertions(
+	.clk(clk), .rst(rst), .main_addr(main_addr), .main_cs(main_cs), .main_ok(main_ok)
+);

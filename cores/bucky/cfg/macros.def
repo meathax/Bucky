@@ -1,6 +1,16 @@
 CORENAME=BUCKY
 GAMETOP=jtbucky_game_sdram
 
+# Run the shared SDRAM/video service path at 96 MHz while retaining the
+# JTframe-provided 48 MHz game clock for the CPU and sound domains.  The
+# tile-line producer is deadline-bound; this is the documented JTframe split,
+# not a game-specific delay or cache hack.
+JTFRAME_SDRAM96
+JTFRAME_CLK48
+# Bucky does not advertise the optional Villena DB15 adapter.  Removing its
+# clocked interface also removes the otherwise-unconstrained DB15 clock path.
+JTFRAME_NO_DB15
+
 JTFRAME_HEADER=16
 # El 3er boton fisico (B3) es un IPT_BUTTON3 real en moo.cpp para el set "bucky" (moo.cpp:704-713);
 # es Moo Mesa quien lo deja como IPT_UNKNOWN, no al reves. BUTTONS=3 es el valor correcto de Bucky por
